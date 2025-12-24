@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/departments/index.html" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE - Direct Edit Table (Delta Sync)</title>
+  </head>
+  <body>
+    <main>
+      <h1>Departments</h1>
+
+      <!--
+        Use case:
+        - Load the full department list on page load.
+        - Edit cells directly (hy-edit-mode="direct").
+        - Subscribe to per-edit deltas and sync to the server.
+
+        Notes:
+        - This sample uses `hy.on("table-edit", ...)` (delta-only).
+        - A future `table-edit-all` could deliver the full dataset instead (see design/table.md).
+      -->
+      <section hy-get="/api/departments" hy-store="current" hy-unwrap="data">
+        <!-- Example response: { "departments": [{ "id": "d001", "name": "Sales", "manager": "Alice" }] } -->
+
+        <table
+          hy-table-data="departments"
+          hy-data="current.departments"
+          hy-edit-mode="direct"
+          hy-option="lang: ja en"
+        >
+          <thead>
+            <tr>
+              <th hy-column="key: id; type: string" style="width: 110px">ID</th>
+              <th hy-column="key: name; type: string">Name</th>
+              <th hy-column="key: manager; type: string">Manager</th>
+              <th
+                hy-column="key: updatedAt; type: date; format: yyyy-MM-dd"
+                style="width: 140px"
+              >
+                Updated
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Static HTML prototyping rows (table is replaced when HyTDE runs) -->
+            <tr>
+              <td>d001</td>
+              <td>Sales</td>
+              <td>Alice</td>
+              <td>2025-12-01</td>
+            </tr>
+            <tr>
+              <td>d002</td>
+              <td>Engineering</td>
+              <td>Bob</td>
+              <td>2025-12-02</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      // Delta-only sync example:
+      // `hy.on("table-edit", ...)` receives only the edit delta, not the full table data.
+      //
+      // Proposed payload shape (draft):
+      // {
+      //   tableKey: "departments",
+      //   rowKey: "d001",
+      //   changes: [{ key: "name", from: "Sales", to: "Global Sales" }],
+      //   delta: { updated: [{ id: "d001", name: "Global Sales" }] }
+      // }
+      hy.on("table-edit", "departments", async (event) => {
+        try {
+          await fetch("/api/departments/edit", {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(event.delta ?? event),
+          });
+        } catch (e) {
+          // App policy: show a toast, mark the row dirty, or retry with backoff.
+          console.error(e);
+        }
+      });
+    </script>
+  </body>
+</html>
+

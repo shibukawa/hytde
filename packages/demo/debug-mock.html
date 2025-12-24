@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/users/[userId]/show.html" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/users/[userId] path=./mocks/user.json" />
+    <title>⭐️HyTDE - Debug Mock</title>
+  </head>
+  <body>
+    <main>
+      <h1>User (mocked)</h1>
+
+      <section hy-get="/api/users/{hyParams.userId}" hy-store="current">
+        <p><strong>Name:</strong> <span hy="current.user.name |> capital">name</span></p>
+        <p><strong>Email:</strong> <span hy="current.user.email">email</span></p>
+      </section>
+    </main>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+      const runtimeGlobal = globalThis;
+      runtimeGlobal.hy.registerTransform("capital", "string", (input) => input.toUpperCase());
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "user": {
+    "id": 100,
+    "name": "alice",
+    "email": "alice@example.com",
+    "isStaff": true,
+    "teams": [
+      { "name": "core" },
+      { "name": "platform" }
+    ]
+  }
+}

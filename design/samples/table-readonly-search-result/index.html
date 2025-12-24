@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/users/index.html" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE - Readonly Search Result Table</title>
+  </head>
+  <body>
+    <main>
+      <h1>User Search</h1>
+
+      <form
+        hy-get="/api/users/search"
+        hy-store="current"
+        hy-unwrap="data"
+        hy-history="sync-push"
+      >
+        <label>
+          Query
+          <input name="q" placeholder="name/email" autocomplete="off" />
+        </label>
+        <button type="submit">Search</button>
+      </form>
+
+      <h2>Results</h2>
+      <table
+        hy-table-data="users"
+        hy-data="current.users"
+        hy-edit-mode="readonly"
+        hy-option="lang: ja en"
+      >
+        <thead>
+          <tr>
+            <th hy-column="key: id; type: number" style="width: 80px">ID</th>
+            <th hy-column="key: name; type: string">Name</th>
+            <th hy-column="key: email; type: string">Email</th>
+            <th hy-column="key: createdAt; type: date; format: yyyy-MM-dd" style="width: 140px">
+              Created
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Static HTML prototyping rows (table is replaced when HyTDE runs) -->
+          <tr>
+            <td>100</td>
+            <td>Alice</td>
+            <td>alice@example.com</td>
+            <td>2025-12-01</td>
+          </tr>
+          <tr>
+            <td>101</td>
+            <td>Bob</td>
+            <td>bob@example.com</td>
+            <td>2025-12-02</td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/users/index.html" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE - Auto-submit Form</title>
+  </head>
+  <body>
+    <main>
+      <h1>User Search (Auto-submit)</h1>
+
+      <!--
+        Auto-submit search:
+        - No explicit "Search" button required.
+        - Debounced input event triggers fetch-only submission.
+        - Stores response into `current` and rerenders consumers.
+        - Uses history "replace" to avoid a push per keystroke.
+      -->
+      <form
+        hy-get="/api/users/search"
+        hy-store="current"
+        hy-unwrap="data"
+        hy-history="replace"
+        hy-submit-on="input"
+        hy-debounce="250"
+        hy-submit-compose="blur"
+      >
+        <label>
+          Query
+          <input name="q" placeholder="name/email" autocomplete="off" />
+        </label>
+      </form>
+
+      <section>
+        <p hy-dummy><strong>Dummy:</strong> 3 results</p>
+        <ul>
+          <li hy-dummy><a href="/users/[userId]/show.html#userId=100">Dummy Alice</a></li>
+          <li hy-dummy><a href="/users/[userId]/show.html#userId=101">Dummy Bob</a></li>
+          <li hy-dummy><a href="/users/[userId]/show.html#userId=102">Dummy Carol</a></li>
+
+          <li hy-for="u of current.users">
+            <a hy-attr-href="/users/[userId]/show.html#userId={u.id}">
+              <span hy="u.name"></span>
+            </a>
+          </li>
+        </ul>
+      </section>
+
+      <hr />
+
+      <!-- Plain HTML baseline -->
+      <form method="get" action="/users/index.html">
+        <label>
+          Query
+          <input name="q" placeholder="name/email" />
+        </label>
+        <button type="submit">Search (navigate)</button>
+      </form>
+    </main>
+  </body>
+</html>

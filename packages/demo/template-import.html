@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/users/[userId] path=/mocks/user.json" />
+    <title>⭐️HyTDE Template Import</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-4 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Template Import</h1>
+            <p class="text-sm opacity-70">
+              Quad-pane view for source, transformed HTML, rendered output, and logs.
+            </p>
+          </div>
+          <div class="badge badge-outline">MVP Runtime</div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-2 lg:grid-rows-2">
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Source</h2>
+              <div role="tablist" class="tabs tabs-boxed">
+                <button class="tab tab-active" data-tab="html" type="button">HTML</button>
+                <button class="tab" data-tab="json" type="button">JSON (/api/users/100)</button>
+                <button class="tab" data-tab="component" type="button">components/user-card.html</button>
+              </div>
+            </div>
+            <div id="source-html-blocks" class="space-y-3">
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  CDN Import
+                </div>
+                <pre
+                  id="source-cdn"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading CDN snippet...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  Inline Script
+                </div>
+                <pre
+                  id="source-script"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading script...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  HTML
+                </div>
+                <pre
+                  id="source-html"
+                  class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading source...</pre>
+              </div>
+            </div>
+            <div id="source-json-blocks" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="source-json"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Loading JSON...</pre>
+            </div>
+            <div id="source-component-blocks" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="source-component"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Loading component...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Transformed HTML</h2>
+            <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="transformed-html"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Waiting for first render...</pre
+              >
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Rendered Output</h2>
+            <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
+              <section class="space-y-2" hy-get="/api/users/100" hy-store="current">
+                <p class="text-xs uppercase tracking-wide text-base-content/60">Host content</p>
+                <p class="text-sm">This block is rendered by the host template.</p>
+                <hy-import src="/components/user-card.html"></hy-import>
+                <p class="text-sm">Imported content above should blend into this layout.</p>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Runtime Log</h2>
+            <div
+              id="runtime-log"
+              class="rounded-lg border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed"
+            >
+              <div class="opacity-60">Log entries will appear here.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+      // start-script
+      init();
+      // end-script
+    </script>
+    <template id="source-inline-script">
+      // start-script
+      init();
+      // end-script
+    </template>
+    <script type="text/plain" id="source-html-template">
+<section class="space-y-2" hy-get="/api/users/100" hy-store="current">
+  <p class="text-xs uppercase tracking-wide text-base-content/60">Host content</p>
+  <p class="text-sm">This block is rendered by the host template.</p>
+  <hy-import src="/components/user-card.html"></hy-import>
+  <p class="text-sm">Imported content above should blend into this layout.</p>
+</section>
+    </script>
+    <script type="text/plain" id="source-json-template">
+{
+  "user": {
+    "id": 100,
+    "name": "alice",
+    "email": "alice@example.com",
+    "isStaff": true,
+    "teams": [
+      { "name": "core" },
+      { "name": "platform" }
+    ]
+  }
+}
+    </script>
+    <template id="source-cdn-template">
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/hytde-standalone.js"&gt;&lt;/script&gt;
+    </template>
+    <script type="text/plain" id="source-component-template">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>User Card</title>
+    <style hy-export>
+      .demo-user-card {
+        border-radius: 12px;
+        border: 1px solid hsl(24 85% 70%);
+        background: hsl(28 95% 96%);
+        padding: 16px;
+        display: grid;
+        gap: 8px;
+        font-family: "Space Grotesk", sans-serif;
+      }
+      .demo-user-card__meta {
+        color: hsl(215 16% 35%);
+        font-size: 0.9rem;
+      }
+      .demo-user-card__badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        background: hsl(200 70% 92%);
+        color: hsl(200 40% 28%);
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 2px 10px;
+        width: fit-content;
+      }
+    </style>
+  </head>
+  <body>
+    <article class="demo-user-card" hy-export="card">
+      <div class="demo-user-card__badge">Imported Component</div>
+      <h3 class="text-lg font-semibold" hy="current.user.name">User Name</h3>
+      <p class="demo-user-card__meta" hy="current.user.email">user@example.com</p>
+    </article>
+  </body>
+</html>
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/orgs/[orgId]/users/index.html" />
+    <title>HyTDE Template Language - Lexical Scope</title>
+  </head>
+  <body>
+    <main>
+      <h1>Lexical Scope Demo</h1>
+
+      <!--
+        This sample demonstrates HyTDE lexical scope resolution:
+          1) loop variables (nearest-to-farthest `hy-for`)
+          2) store namespaces (aliases of `hyState.<namespace>`, e.g. `current`)
+          3) reserved globals (`hyParams`, `hyAuth`, ...)
+
+        Note: `hy-get` does not introduce implicit variables. Data must be stored explicitly via `hy-store`.
+      -->
+      <section hy-get="/api/orgs/{hyParams.orgId}/users" hy-store="current">
+        <!-- Example response: { "org": { "name": "Acme" }, "users": [{ "id": 1, "name": "Alice" }] } -->
+        <h2>
+          <span>Org:</span>
+          <span hy="current.org.name">Acme</span>
+        </h2>
+
+        <ul>
+          <li hy-for="user of current.users">
+            <p>
+              <strong>User:</strong>
+              <span hy="user.name">Alice</span>
+              <span>(id: <span hy="user.id">1</span>)</span>
+            </p>
+            <p>
+              <strong>From store:</strong>
+              <span hy="current.org.name">Acme</span>
+            </p>
+            <p>
+              <strong>From globals:</strong>
+              <span>orgId=</span><span hy="hyParams.orgId">[orgId]</span>
+            </p>
+          </li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

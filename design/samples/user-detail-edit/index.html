@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/users/[userId]/edit.html" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE - User Detail Edit</title>
+  </head>
+  <body>
+    <main>
+      <h1>Edit User</h1>
+
+      <!--
+        Requirements covered by this sample:
+        - On load: GET the user record by `hyParams.userId`.
+        - Map the response into the form controls via `hy-fill`.
+        - On save: send the API request (no page navigation by default).
+        - After successful save: redirect back to the list page.
+      -->
+
+      <section hy-get="/api/users/{hyParams.userId}" hy-store="current" hy-unwrap="data">
+        <!-- Example response: { "user": { "id": 100, "name": "Alice", "email": "alice@example.com", "status": "active" } } -->
+
+        <form
+          hy-fill="current.user"
+          hy-put="/api/users/{hyParams.userId}"
+          hy-send-in="json"
+          hy-redirect="/users/index.html"
+        >
+          <!-- Plain HTML fallback (for non-HyTDE environments): -->
+          <input type="hidden" name="id" value="100" />
+
+          <p>
+            <strong>User ID:</strong>
+            <span hy="current.user.id">100</span>
+          </p>
+
+          <label>
+            Name
+            <input name="name" required />
+          </label>
+
+          <label>
+            Email
+            <input name="email" type="email" required autocomplete="email" />
+          </label>
+
+          <label>
+            Status
+            <select name="status" required>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </label>
+
+          <div style="margin-top: 16px">
+            <button type="submit">Save</button>
+            <a href="/users/index.html">Cancel</a>
+          </div>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>
+

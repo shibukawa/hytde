@@ -1,0 +1,19 @@
+{
+  "name": "@hytde/demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "echo \"no tests\""
+  },
+  "dependencies": {
+    "@hytde/parser": "0.0.0",
+    "@hytde/runtime": "0.0.0"
+  },
+  "devDependencies": {
+    "@hytde/vite-plugin": "0.0.0"
+  }
+}

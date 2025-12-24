@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE - Combobox (Strict / Select Prototype)</title>
+  </head>
+  <body>
+    <main>
+      <h1>Combobox (Strict)</h1>
+
+      <p>
+        In static HTML (HyTDE not running), a native <code>&lt;select&gt;</code> is a good prototype for “exact match required”.
+        When HyTDE runs, <code>hy-combobox-*</code> turns this into an input+popover typeahead and preserves the selected value for submission.
+      </p>
+
+      <label>
+        User
+        <select
+          name="userId"
+          hy-combobox-candidate="/api/users/suggest?q={value}"
+          hy-combobox-mode="strict"
+        >
+          <option value="">(select one)</option>
+          <option value="100">Dummy user 100</option>
+          <option value="101">Dummy user 101</option>
+          <option value="102">Dummy user 102</option>
+        </select>
+      </label>
+    </main>
+  </body>
+</html>

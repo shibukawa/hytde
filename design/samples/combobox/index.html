@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE - Combobox</title>
+  </head>
+  <body>
+    <main>
+      <h1>Combobox (Typeahead)</h1>
+
+      <p>
+        In static HTML (HyTDE not running), the <code>&lt;datalist&gt;</code> below provides a basic prototype UI.
+        When HyTDE runs, it should remove <code>list</code> and render a popover+listbox instead.
+      </p>
+
+      <label>
+        User
+        <input
+          name="user"
+          list="user-suggest"
+          autocomplete="off"
+          hy-combobox-candidate="/api/users/suggest?q={value}"
+          hy-combobox-debounce="200"
+          hy-combobox-min-chars="1"
+          hy-combobox-limit="10"
+          hy-combobox-mode="free"
+        />
+      </label>
+
+      <datalist id="user-suggest">
+        <option value="Dummy user 1"></option>
+        <option value="Dummy user 2"></option>
+        <option value="Dummy user 3"></option>
+      </datalist>
+    </main>
+  </body>
+</html>

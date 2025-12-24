@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <title>HyTDE Template Import</title>
+  </head>
+  <body>
+    <main>
+      <h1>Template Import</h1>
+
+      <section hy-get="/api/users/100" hy-store="current">
+        <!-- hy-get-dummy: { "user": { "id": 100, "name": "Alice", "email": "alice@example.com" } } -->
+        <p>Host template content starts here.</p>
+        <hy-import src="/components/user-card.html"></hy-import>
+        <p>Host template content ends here.</p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>User Card</title>
+    <style hy-export>
+      .demo-user-card {
+        border-radius: 12px;
+        border: 1px solid hsl(24 85% 70%);
+        background: hsl(28 95% 96%);
+        padding: 16px;
+        display: grid;
+        gap: 8px;
+        font-family: "Space Grotesk", sans-serif;
+      }
+      .demo-user-card__meta {
+        color: hsl(215 16% 35%);
+        font-size: 0.9rem;
+      }
+      .demo-user-card__badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        background: hsl(200 70% 92%);
+        color: hsl(200 40% 28%);
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 2px 10px;
+        width: fit-content;
+      }
+    </style>
+  </head>
+  <body>
+    <article class="demo-user-card" hy-export="card">
+      <div class="demo-user-card__badge">Imported Component</div>
+      <h3 class="text-lg font-semibold" hy="current.user.name">User Name</h3>
+      <p class="demo-user-card__meta" hy="current.user.email">user@example.com</p>
+    </article>
+  </body>
+</html>

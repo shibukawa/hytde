@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/users/batch-edit.html" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE - Batch Edit Table</title>
+  </head>
+  <body>
+    <main>
+      <h1>Users (Batch Edit)</h1>
+
+      <form id="batch-form" hy-post="/api/users/batch" hy-send-in="json">
+        <input type="hidden" hy-table-data="users" />
+        <!-- Optional: add `hy-table-submit="all"` to send full rows instead of a delta -->
+        <button type="submit">Save All</button>
+      </form>
+
+      <table
+        hy-table-data="users"
+        hy-data="current.users"
+        hy-edit-mode="commit"
+        hy-option="lang: ja en"
+      >
+        <thead>
+          <tr>
+            <th hy-column="key: id; type: number" style="width: 80px">ID</th>
+            <th hy-column="key: name; type: string">Name</th>
+            <th hy-column="key: email; type: string">Email</th>
+            <th hy-column="key: status; type: string" style="width: 120px">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Static HTML prototyping rows -->
+          <tr>
+            <td>100</td>
+            <td>Alice</td>
+            <td>alice@example.com</td>
+            <td>active</td>
+          </tr>
+          <tr>
+            <td>101</td>
+            <td>Bob</td>
+            <td>bob@example.com</td>
+            <td>inactive</td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/users/[userId]/show.html" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/users/[userId] path=./mocks/user-detail.json" />
+    <title>⭐️HyTDE Template Language - Basic</title>
+  </head>
+  <body>
+    <main>
+      <h1>User</h1>
+
+      <section hy-get="/api/users/{hyParams.userId}" hy-store="current">
+        <!-- hy-schema: { "type": "object", "required": ["user"], "properties": { "user": { "type": "object", "required": ["name", "email"], "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "createdAt": { "type": ["string","null"] }, "isAdmin": { "type": ["boolean","null"] }, "isStaff": { "type": ["boolean","null"] }, "teams": { "type": ["array","null"] }, "profileUrl": { "type": ["string","null"] } } } } } -->
+        <!-- hy-get-dummy: { "user": { "id": 1, "name": "Alice", "email": "alice@example.com", "createdAt": "2025-12-01T10:20:30Z", "isAdmin": false, "isStaff": true, "teams": [{ "name": "Core" }, { "name": "Platform" }], "profileUrl": "/users/1" } } -->
+        <p>
+          <strong>Name:</strong>
+          <span hy="current.user.name">name</span>
+        </p>
+        <p>
+          <strong>Email:</strong>
+          <span hy="current.user.email">email</span>
+        </p>
+        <p>
+          <strong>Created:</strong>
+          <time hy="current.user.createdAt |> date('yyyy-MM-dd')">1970-01-01</time>
+        </p>
+        <p hy-if="current.user.isAdmin">Admin</p>
+        <p hy-else-if="current.user.isStaff">Staff</p>
+        <p hy-else>Member</p>
+
+        <h2>Teams</h2>
+        <ul>
+          <li hy-for="team of current.user.teams">
+            <span hy="team.name |> capital">Dummy team 1</span>
+          </li>
+          <li hy-dummy><span>Dummy team 2</span></li>
+          <li hy-dummy><span>Dummy team 3</span></li>
+        </ul>
+
+        <p>
+          <a hy-attr-href="/users/[userId]/show.html#userId={current.user.id}">Profile</a>
+        </p>
+      </section>
+
+      <hr />
+
+      <h2>Reusable Card</h2>
+      <hy-import src="/components/user-card.html" hy-with="current.user"></hy-import>
+    </main>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+      const runtimeGlobal = globalThis;
+      runtimeGlobal.hy.registerTransform("capital", "string", (input) => input.toUpperCase());
+      init();
+    </script>
+  </body>
+</html>

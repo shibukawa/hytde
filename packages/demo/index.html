@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>⭐️HyTDE Demo Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-6 flex flex-col gap-2">
+        <h1 class="text-3xl font-semibold">⭐️HyTDE Demo Portal</h1>
+        <p class="text-sm opacity-70">Select a demo page.</p>
+      </header>
+
+      <section class="grid gap-4 md:grid-cols-2">
+        <a class="card bg-base-100 shadow transition hover:-translate-y-0.5 hover:shadow-lg" href="/basic-sample.html">
+          <div class="card-body gap-2">
+            <h2 class="card-title text-lg">Basic Sample</h2>
+            <p class="text-sm opacity-70">
+              Source, transformed HTML, rendered output, and runtime logs.
+            </p>
+          </div>
+        </a>
+        <a class="card bg-base-100 shadow transition hover:-translate-y-0.5 hover:shadow-lg" href="/template-language-basic.html">
+          <div class="card-body gap-2">
+            <h2 class="card-title text-lg">Template Language: Basic</h2>
+            <p class="text-sm opacity-70">Selectors, loops, and conditionals with mock data.</p>
+          </div>
+        </a>
+        <a class="card bg-base-100 shadow transition hover:-translate-y-0.5 hover:shadow-lg" href="/template-import.html">
+          <div class="card-body gap-2">
+            <h2 class="card-title text-lg">Template Import</h2>
+            <p class="text-sm opacity-70">Hy-import and hy-export replacement flow.</p>
+          </div>
+        </a>
+        <a class="card bg-base-100 shadow transition hover:-translate-y-0.5 hover:shadow-lg" href="/search-form.html">
+          <div class="card-body gap-2">
+            <h2 class="card-title text-lg">Search Form</h2>
+            <p class="text-sm opacity-70">History-aware search UX sample.</p>
+          </div>
+        </a>
+        <a class="card bg-base-100 shadow transition hover:-translate-y-0.5 hover:shadow-lg" href="/debug-mock.html">
+          <div class="card-body gap-2">
+            <h2 class="card-title text-lg">Debug Mock</h2>
+            <p class="text-sm opacity-70">Mock response inspection page.</p>
+          </div>
+        </a>
+      </section>
+    </main>
+  </body>
+</html>

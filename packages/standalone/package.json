@@ -1,0 +1,23 @@
+{
+  "name": "@hytde/standalone",
+  "version": "0.0.0",
+  "private": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b && vite build",
+    "test": "echo \"no tests\""
+  },
+  "dependencies": {
+    "@hytde/runtime": "0.0.0",
+    "@hytde/parser": "0.0.0"
+  }
+}

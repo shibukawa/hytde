@@ -1,0 +1,428 @@
+const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-tab]"));
+const sourceHtml = document.querySelector<HTMLElement>("#source-html");
+const sourceHtmlBlocks = document.querySelector<HTMLElement>("#source-html-blocks");
+const sourceJson = document.querySelector<HTMLElement>("#source-json");
+const sourceJsonBlocks = document.querySelector<HTMLElement>("#source-json-blocks");
+const sourceComponent = document.querySelector<HTMLElement>("#source-component");
+const sourceComponentBlocks = document.querySelector<HTMLElement>("#source-component-blocks");
+const sourceScript = document.querySelector<HTMLElement>("#source-script");
+const sourceCdn = document.querySelector<HTMLElement>("#source-cdn");
+const transformed = document.querySelector<HTMLElement>("#transformed-html");
+const renderOutput = document.querySelector<HTMLElement>("#render-output");
+const logPanel = document.querySelector<HTMLElement>("#runtime-log");
+const LOG_BUFFER_KEY = "__hytdeLogBuffer";
+
+const activateTab = (name: string) => {
+  if (!sourceHtmlBlocks || !sourceJsonBlocks) {
+    return;
+  }
+  const showHtml = name === "html";
+  const showJson = name === "json";
+  const showComponent = name === "component";
+  sourceHtmlBlocks.classList.toggle("hidden", !showHtml);
+  sourceJsonBlocks.classList.toggle("hidden", !showJson);
+  if (sourceComponentBlocks) {
+    sourceComponentBlocks.classList.toggle("hidden", !showComponent);
+  }
+
+  for (const button of tabButtons) {
+    const active = button.dataset.tab === name;
+    button.classList.toggle("tab-active", active);
+  }
+};
+
+for (const button of tabButtons) {
+  button.addEventListener("click", () => {
+    activateTab(button.dataset.tab ?? "html");
+  });
+}
+
+const appendLog = (entry: {
+  type: string;
+  message: string;
+  detail?: Record<string, unknown>;
+  timestamp: number;
+}) => {
+  if (!logPanel) {
+    return;
+  }
+
+  const line = document.createElement("div");
+  const time = new Date(entry.timestamp).toLocaleTimeString();
+  const detail = entry.detail ? ` ${JSON.stringify(entry.detail)}` : "";
+  line.textContent = `[${time}] ${entry.type}: ${entry.message}${detail}`;
+
+  if (logPanel.firstElementChild?.textContent?.includes("Log entries")) {
+    logPanel.innerHTML = "";
+  }
+
+  logPanel.append(line);
+  while (logPanel.children.length > 120) {
+    logPanel.removeChild(logPanel.firstElementChild as ChildNode);
+  }
+};
+
+const readSourceText = (selector: string) => {
+  const element = document.querySelector<HTMLElement>(selector);
+  if (!element) {
+    return "";
+  }
+  if (element instanceof HTMLTemplateElement) {
+    return element.content.textContent ?? "";
+  }
+  return element.textContent ?? "";
+};
+
+const sourceHtmlRaw = readSourceText("#source-html-template").trim();
+const sourceJsonRaw = readSourceText("#source-json-template").trim();
+const sourceComponentRaw = readSourceText("#source-component-template").trim();
+const sourceCdnRaw = readSourceText("#source-cdn-template").trim();
+
+const extractInlineScript = () => {
+  const text = readSourceText("#source-inline-script");
+  if (!text) {
+    return { raw: "", extracted: "" };
+  }
+  const match = text.match(/\/\/ start-script\s*([\s\S]*?)\s*\/\/ end-script/);
+  return {
+    raw: text.trim(),
+    extracted: match ? dedentByMarker(text, match[1]) : ""
+  };
+};
+
+const dedentByMarker = (fullText: string, extracted: string) => {
+  const markerMatch = fullText.match(/(^[ \t]*)\/\/ start-script/m);
+  const indent = markerMatch ? markerMatch[1].length : 0;
+  return extracted
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.slice(0, indent).trim() === "" ? line.slice(indent) : line)
+    .join("\n")
+    .trim();
+};
+
+
+const escapeHtml = (value: string) =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const escapeAttr = (value: string) =>
+  value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+
+const highlightHtml = (raw: string) => {
+  let result = "";
+  let cursor = 0;
+  const stack: Array<{ textClass: string; tagClass: string; isDummy: boolean }> = [];
+
+  while (cursor < raw.length) {
+    const start = raw.indexOf("<", cursor);
+    if (start === -1) {
+      result += highlightText(raw.slice(cursor), stack);
+      break;
+    }
+
+    result += highlightText(raw.slice(cursor, start), stack);
+    const end = findTagEnd(raw, start + 1);
+    if (end === -1) {
+      result += highlightText(raw.slice(start), stack);
+      break;
+    }
+
+    const tag = raw.slice(start, end + 1);
+    result += highlightTag(tag, stack);
+    cursor = end + 1;
+  }
+
+  return result;
+};
+
+const highlightText = (text: string, stack: Array<{ textClass: string; tagClass: string; isDummy: boolean }>) => {
+  if (!text) {
+    return "";
+  }
+  const escaped = escapeHtml(text);
+  const current = stack[stack.length - 1];
+  if (current?.textClass) {
+    return `<span class="${current.textClass}">${escaped}</span>`;
+  }
+  return escaped;
+};
+
+const findTagEnd = (raw: string, start: number) => {
+  let inQuote: string | null = null;
+  for (let index = start; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (inQuote) {
+      if (char === inQuote) {
+        inQuote = null;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      inQuote = char;
+      continue;
+    }
+    if (char === ">") {
+      return index;
+    }
+  }
+  return -1;
+};
+
+const highlightTag = (tag: string, stack: Array<{ textClass: string; tagClass: string; isDummy: boolean }>) => {
+  const closing = tag.startsWith("</");
+  const selfClosing = tag.endsWith("/>");
+  const inner = tag.slice(closing ? 2 : 1, selfClosing ? -2 : -1).trim();
+  const parts = inner.match(/^([^\s/]+)(.*)$/);
+  const tagName = parts?.[1] ?? "";
+  const attrs = parts?.[2] ?? "";
+
+  const symbolClass = "text-black/80";
+  const htmlTagClass = "text-purple-500";
+  const htmlAttrClass = "text-cyan-500";
+  const htmlValueClass = "text-cyan-400";
+  const hyTagClass = "text-fuchsia-500";
+  const hyAttrClass = "text-fuchsia-500";
+  const hyValueClass = "text-orange-400";
+  const dummyClass = "text-gray-400";
+
+  const open = `<span class="${symbolClass}">&lt;${closing ? "/" : ""}</span>`;
+  const close = `<span class="${symbolClass}">${selfClosing ? "/" : ""}&gt;</span>`;
+
+  let attrText = "";
+  const attrRegex = /([^\s=]+)(?:=("[^"]*"|'[^']*'|[^\s]+))?/g;
+  let attrMatch: RegExpExecArray | null;
+  const parsedAttrs: Array<{ name: string; value?: string }> = [];
+  while ((attrMatch = attrRegex.exec(attrs))) {
+    const name = attrMatch[1];
+    const value = attrMatch[2];
+    if (!name) {
+      continue;
+    }
+    parsedAttrs.push({ name, value });
+  }
+
+  const isDummy = parsedAttrs.some((attr) => attr.name === "hy-dummy");
+  const isHyTag = tagName.startsWith("hy-");
+  const hasHyText = parsedAttrs.some((attr) => attr.name === "hy");
+
+  const tagClass = isDummy
+    ? dummyClass
+    : tagName.startsWith("hy-")
+      ? hyTagClass
+      : htmlTagClass;
+
+  const highlightHyValue = (raw: string) => {
+    const quote = raw.startsWith("\"") || raw.startsWith("'") ? raw[0] : "";
+    const trimmed = quote && raw.endsWith(quote) ? raw.slice(1, -1) : raw;
+    const parts = trimmed.split("|>");
+    const op = `<span class="${hyAttrClass}">|&gt;</span>`;
+    return parts
+      .map((part, index) => {
+        let text = escapeHtml(part);
+        if (index === 0 && quote) {
+          text = `${escapeHtml(quote)}${text}`;
+        }
+        if (index === parts.length - 1 && quote) {
+          text = `${text}${escapeHtml(quote)}`;
+        }
+        return `<span class="${hyValueClass}">${text}</span>`;
+      })
+      .join(op);
+  };
+
+  for (const attr of parsedAttrs) {
+    const isHy = isHyTag || attr.name === "hy" || attr.name.startsWith("hy-");
+    const nameClass = isDummy ? dummyClass : isHy ? hyAttrClass : htmlAttrClass;
+    const valueClass = isDummy ? dummyClass : isHy ? hyValueClass : htmlValueClass;
+    attrText += ` <span class="${nameClass}">${escapeHtml(attr.name)}</span>`;
+    if (attr.value) {
+      const valueHtml = isDummy
+        ? `<span class="${valueClass}">${escapeHtml(attr.value)}</span>`
+        : isHy
+          ? highlightHyValue(attr.value)
+          : `<span class="${valueClass}">${escapeHtml(attr.value)}</span>`;
+      attrText += `=${valueHtml}`;
+    }
+  }
+
+  if (closing) {
+    const entry = stack.pop();
+    const closeClass = entry?.isDummy ? dummyClass : entry?.tagClass ?? tagClass;
+    return `${open}<span class="${closeClass}">${escapeHtml(tagName)}</span>${close}`;
+  }
+
+  if (!selfClosing) {
+    stack.push({
+      textClass: isDummy || hasHyText ? dummyClass : "",
+      tagClass,
+      isDummy
+    });
+  }
+
+  return `${open}<span class="${tagClass}">${escapeHtml(tagName)}</span>${attrText}${close}`;
+};
+
+const highlightJson = (raw: string) => {
+  let escaped = escapeHtml(raw);
+  escaped = escaped.replace(
+    /"(?:\\.|[^"\\])*"(?=\\s*:)/g,
+    (match) => `<span class="text-sky-500">${match}</span>`
+  );
+  escaped = escaped.replace(
+    /"(?:\\.|[^"\\])*"/g,
+    (match) => `<span class="text-emerald-500">${match}</span>`
+  );
+  escaped = escaped.replace(
+    /\\b(true|false|null)\\b/g,
+    (match) => `<span class="text-amber-500">${match}</span>`
+  );
+  escaped = escaped.replace(
+    /-?\\b\\d+(?:\\.\\d+)?\\b/g,
+    (match) => `<span class="text-violet-500">${match}</span>`
+  );
+  return escaped;
+};
+
+const formatDom = (container: Element) => {
+  const lines: string[] = [];
+  for (const node of Array.from(container.childNodes)) {
+    const formatted = formatNode(node, 0);
+    if (formatted) {
+      lines.push(formatted);
+    }
+  }
+  return lines.join("\n").trim();
+};
+
+const formatNode = (node: Node, depth: number): string => {
+  const indent = "  ".repeat(depth);
+
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent ?? "";
+    if (!text.trim()) {
+      return "";
+    }
+    return `${indent}${text.trim()}`;
+  }
+
+  if (node.nodeType === Node.COMMENT_NODE) {
+    return `${indent}<!--${(node as Comment).data}-->`;
+  }
+
+  if (!(node instanceof Element)) {
+    return "";
+  }
+
+  const tagName = node.tagName.toLowerCase();
+  const attrString = node
+    .getAttributeNames()
+    .map((name) => {
+      const value = node.getAttribute(name);
+      if (value == null || value === "") {
+        return name;
+      }
+      return `${name}="${escapeAttr(value)}"`;
+    })
+    .join(" ");
+  const openTag = `<${tagName}${attrString ? ` ${attrString}` : ""}>`;
+  const closeTag = `</${tagName}>`;
+
+  const children = Array.from(node.childNodes).filter((child) => {
+    return !(child.nodeType === Node.TEXT_NODE && !(child.textContent ?? "").trim());
+  });
+
+  if (children.length === 0) {
+    return `${indent}${openTag}${closeTag}`;
+  }
+
+  if (children.length === 1 && children[0].nodeType === Node.TEXT_NODE) {
+    return `${indent}${openTag}${(children[0].textContent ?? "").trim()}${closeTag}`;
+  }
+
+  const nested = children
+    .map((child) => formatNode(child, depth + 1))
+    .filter(Boolean)
+    .join("\n");
+
+  return `${indent}${openTag}\n${nested}\n${indent}${closeTag}`;
+};
+
+const dumpTransformed = () => {
+  if (!renderOutput || !transformed) {
+    return;
+  }
+  const formatted = formatDom(renderOutput);
+  transformed.innerHTML = highlightHtml(formatted || " ");
+};
+
+const registerRuntimeHooks = () => {
+  const runtimeGlobal = globalThis as typeof globalThis & { hy?: Record<string, unknown> };
+  const hy = (runtimeGlobal.hy ?? { loading: false, errors: [] }) as Record<string, unknown>;
+  const renderKey = "__hytdeRenderCallbacks";
+  const logKey = "__hytdeLogCallbacks";
+
+  if (!Array.isArray(hy[renderKey])) {
+    hy[renderKey] = [];
+  }
+  if (!Array.isArray(hy[logKey])) {
+    hy[logKey] = [];
+  }
+
+  if (typeof hy.onRenderComplete !== "function") {
+    hy.onRenderComplete = (callback: () => void) => {
+      (hy[renderKey] as Array<() => void>).push(callback);
+    };
+  }
+  if (typeof hy.onLog !== "function") {
+    hy.onLog = (callback: (entry: unknown) => void) => {
+      (hy[logKey] as Array<(entry: unknown) => void>).push(callback);
+    };
+  }
+
+  runtimeGlobal.hy = hy;
+};
+
+if (sourceHtml) {
+  sourceHtml.innerHTML = highlightHtml(sourceHtmlRaw);
+}
+if (sourceJson) {
+  sourceJson.innerHTML = highlightJson(sourceJsonRaw);
+}
+if (sourceComponent) {
+  sourceComponent.innerHTML = highlightHtml(sourceComponentRaw);
+}
+const updateSourceScript = () => {
+  if (!sourceScript) {
+    return;
+  }
+  const scriptContent = extractInlineScript();
+  sourceScript.textContent = scriptContent.extracted;
+};
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", updateSourceScript, { once: true });
+} else {
+  updateSourceScript();
+}
+if (sourceCdn) {
+  sourceCdn.innerHTML = escapeHtml(sourceCdnRaw);
+}
+
+registerRuntimeHooks();
+const runtimeGlobal = globalThis as typeof globalThis & {
+  hy?: { onRenderComplete?: (cb: () => void) => void; onLog?: (cb: (entry: unknown) => void) => void };
+};
+runtimeGlobal.hy?.onRenderComplete?.(dumpTransformed);
+runtimeGlobal.hy?.onLog?.(appendLog);
+const bufferedLogs = (runtimeGlobal.hy as Record<string, unknown> | undefined)?.[LOG_BUFFER_KEY];
+if (Array.isArray(bufferedLogs)) {
+  bufferedLogs.forEach((entry) => appendLog(entry as { type: string; message: string; detail?: Record<string, unknown>; timestamp: number }));
+  bufferedLogs.length = 0;
+}
+
+appendLog({
+  type: "info",
+  message: "demo:ready",
+  timestamp: Date.now()
+});
+
+dumpTransformed();

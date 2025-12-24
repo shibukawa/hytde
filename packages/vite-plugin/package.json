@@ -1,0 +1,22 @@
+{
+  "name": "@hytde/vite-plugin",
+  "version": "0.0.0",
+  "private": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "echo \"no tests\""
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0 || ^6.0.0"
+  }
+}

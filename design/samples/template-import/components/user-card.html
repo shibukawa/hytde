@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>User Card</title>
+    <style hy-export>
+      .user-card {
+        border: 1px solid #f4b076;
+        background: #fff5ec;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .user-card__label {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #4b5563;
+      }
+    </style>
+  </head>
+  <body>
+    <article class="user-card" hy-export="card">
+      <div class="user-card__label">Imported Component</div>
+      <h2 hy="current.user.name">User Name</h2>
+      <p hy="current.user.email">user@example.com</p>
+    </article>
+  </body>
+</html>

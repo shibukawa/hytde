@@ -1,0 +1,21 @@
+{
+  "name": "hytde",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "npm run build -w packages/runtime && npm run build -w packages/parser && npm run build -w packages/precompile && npm run build -w packages/vite-plugin && npm run build -w packages/standalone && npm run build -w packages/demo",
+    "build:demo": "npm run build -w packages/demo",
+    "dev": "npm run dev --workspaces",
+    "dev:demo": "npm run dev -w packages/demo",
+    "test": "npm run test --workspaces"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  }
+}
