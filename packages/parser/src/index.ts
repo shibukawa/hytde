@@ -4,6 +4,8 @@ export interface MockRule {
   pattern: RegExp;
   path: string;
   method: string;
+  status?: number;
+  delayMs?: { min: number; max: number };
 }
 
 export interface ForTemplate {
@@ -47,6 +49,9 @@ export interface RequestTarget {
   unwrap: string | null;
   method: string;
   isForm: boolean;
+  trigger: "startup" | "submit";
+  form: HTMLFormElement | null;
+  fillInto: string | null;
 }
 
 export interface TextBinding {
@@ -71,6 +76,7 @@ export interface ParsedSubtree {
   ifChains: IfChain[];
   textBindings: TextBinding[];
   attrBindings: AttrBinding[];
+  fillTargets: FillTarget[];
 }
 
 export interface ParsedDocument extends ParsedSubtree {
@@ -79,15 +85,20 @@ export interface ParsedDocument extends ParsedSubtree {
   mockRules: MockRule[];
   requestTargets: RequestTarget[];
   importTargets: ImportTarget[];
+  handlesErrors: boolean;
+  hasErrorPopover: boolean;
 }
 
 export function parseDocument(doc: Document): ParsedDocument {
+  const { handlesErrors, hasErrorPopover } = detectErrorHandling(doc);
   return {
     doc,
     executionMode: getExecutionMode(doc),
     mockRules: parseMockRules(doc),
     requestTargets: parseRequestTargets(doc),
     importTargets: parseImportTargets(doc),
+    handlesErrors,
+    hasErrorPopover,
     ...parseSubtree(doc)
   };
 }
@@ -98,14 +109,21 @@ export function parseSubtree(root: ParentNode): ParsedSubtree {
   const ifChains = parseIfChains(root);
   const textBindings = parseTextBindings(root);
   const attrBindings = parseAttrBindings(root);
+  const fillTargets = parseFillTargets(root);
 
   return {
     dummyElements,
     forTemplates,
     ifChains,
     textBindings,
-    attrBindings
+    attrBindings,
+    fillTargets
   };
+}
+
+export interface FillTarget {
+  form: HTMLFormElement;
+  selector: string;
 }
 
 export interface ParsedHtml {
@@ -191,9 +209,11 @@ function parseMockContent(content: string): MockRule | null {
   let pattern = "";
   let path = "";
   let method = "GET";
+  let status: number | undefined;
+  let delayMs: { min: number; max: number } | undefined;
 
   for (const token of tokens) {
-    const [key, rawValue] = token.split("=");
+    const [key, rawValue] = token.includes("=") ? token.split("=") : token.split(":");
     if (!key || rawValue == null) {
       continue;
     }
@@ -205,6 +225,16 @@ function parseMockContent(content: string): MockRule | null {
       path = value;
     } else if (key === "method") {
       method = value.toUpperCase();
+    } else if (key === "status") {
+      const parsed = Number(value);
+      if (!Number.isNaN(parsed)) {
+        status = parsed;
+      }
+    } else if (key === "delay") {
+      const parsedDelay = parseDelayRange(value);
+      if (parsedDelay) {
+        delayMs = parsedDelay;
+      }
     }
   }
 
@@ -215,8 +245,23 @@ function parseMockContent(content: string): MockRule | null {
   return {
     pattern: patternToRegex(pattern),
     path,
-    method
+    method,
+    status,
+    delayMs
   };
+}
+
+function parseDelayRange(value: string): { min: number; max: number } | null {
+  const parts = value.split("-").map((part) => Number(part.trim()));
+  if (parts.length === 1 && !Number.isNaN(parts[0])) {
+    return { min: parts[0], max: parts[0] };
+  }
+  if (parts.length === 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
+    const min = Math.min(parts[0], parts[1]);
+    const max = Math.max(parts[0], parts[1]);
+    return { min, max };
+  }
+  return null;
 }
 
 function patternToRegex(pattern: string): RegExp {
@@ -226,26 +271,108 @@ function patternToRegex(pattern: string): RegExp {
 }
 
 function parseRequestTargets(doc: Document): RequestTarget[] {
-  const elements = Array.from(doc.querySelectorAll("[hy-get]"));
+  const elements = Array.from(doc.querySelectorAll("[hy-get],[hy-post],[hy-put],[hy-patch],[hy-delete]"));
   const targets: RequestTarget[] = [];
 
   for (const element of elements) {
-    const urlTemplate = element.getAttribute("hy-get");
+    const methodAttr = resolveMethodAttribute(element);
+    if (!methodAttr) {
+      continue;
+    }
+    const urlTemplate = element.getAttribute(methodAttr.attr);
     const store = element.getAttribute("hy-store");
     const unwrap = element.getAttribute("hy-unwrap");
-    element.removeAttribute("hy-get");
+    element.removeAttribute(methodAttr.attr);
     element.removeAttribute("hy-store");
     element.removeAttribute("hy-unwrap");
+    element.removeAttribute("hy-get");
+    element.removeAttribute("hy-post");
+    element.removeAttribute("hy-put");
+    element.removeAttribute("hy-patch");
+    element.removeAttribute("hy-delete");
     if (!urlTemplate) {
       continue;
     }
+    const isForm = element instanceof HTMLFormElement;
+    const isSubmitter = isSubmitControl(element);
+    const trigger = isForm || isSubmitter ? "submit" : "startup";
+    const form = isForm ? (element as HTMLFormElement) : isSubmitter ? getSubmitterForm(element) : null;
     targets.push({
       element,
       urlTemplate,
       store,
       unwrap,
+      method: methodAttr.method,
+      isForm,
+      trigger,
+      form,
+      fillInto: null
+    });
+  }
+
+  const tagTargets = parseGetTagTargets(doc);
+  targets.push(...tagTargets);
+
+  return targets;
+}
+
+function resolveMethodAttribute(element: Element): { attr: string; method: string } | null {
+  const attributes: Array<{ attr: string; method: string }> = [
+    { attr: "hy-get", method: "GET" },
+    { attr: "hy-post", method: "POST" },
+    { attr: "hy-put", method: "PUT" },
+    { attr: "hy-patch", method: "PATCH" },
+    { attr: "hy-delete", method: "DELETE" }
+  ];
+
+  for (const entry of attributes) {
+    if (element.hasAttribute(entry.attr)) {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
+function isSubmitControl(element: Element): element is HTMLButtonElement | HTMLInputElement {
+  if (element instanceof HTMLButtonElement) {
+    return element.type !== "button";
+  }
+  if (element instanceof HTMLInputElement) {
+    return element.type === "submit";
+  }
+  return false;
+}
+
+function getSubmitterForm(element: HTMLButtonElement | HTMLInputElement): HTMLFormElement | null {
+  return element.form ?? (element.closest("form") as HTMLFormElement | null);
+}
+
+function parseGetTagTargets(doc: Document): RequestTarget[] {
+  const elements = Array.from(doc.querySelectorAll("hy-get"));
+  const targets: RequestTarget[] = [];
+
+  for (const element of elements) {
+    const src = element.getAttribute("src");
+    const store = element.getAttribute("store");
+    const unwrap = element.getAttribute("unwrap");
+    const fillInto = element.getAttribute("fill-into");
+    const parent = element.parentElement;
+    element.remove();
+    if (!src || !parent) {
+      continue;
+    }
+
+    targets.push({
+      element: parent,
+      urlTemplate: src,
+      store,
+      unwrap,
       method: "GET",
-      isForm: element instanceof HTMLFormElement
+      isForm: false,
+      trigger: "startup",
+      form: null,
+      fillInto
     });
   }
 
@@ -577,6 +704,53 @@ function parseAttrBindings(root: ParentNode): AttrBinding[] {
   }
 
   return bindings;
+}
+
+function parseFillTargets(root: ParentNode): FillTarget[] {
+  const elements = selectWithRoot(root, "form[hy-fill]");
+  const targets: FillTarget[] = [];
+
+  for (const element of elements) {
+    const selector = element.getAttribute("hy-fill");
+    element.removeAttribute("hy-fill");
+    if (!selector || !(element instanceof HTMLFormElement)) {
+      continue;
+    }
+    targets.push({ form: element, selector });
+  }
+
+  return targets;
+}
+
+function detectErrorHandling(doc: Document): { handlesErrors: boolean; hasErrorPopover: boolean } {
+  const popover = doc.getElementById("hy-error");
+  const hasErrorPopover = Boolean(popover && popover.hasAttribute("popover"));
+  if (hasErrorPopover) {
+    return { handlesErrors: true, hasErrorPopover };
+  }
+
+  const candidates = Array.from(doc.querySelectorAll("[hy],[hy-if],[hy-else-if]"));
+  for (const element of candidates) {
+    for (const attr of ["hy", "hy-if", "hy-else-if"]) {
+      const value = element.getAttribute(attr);
+      if (value && value.includes("hy.errors")) {
+        return { handlesErrors: true, hasErrorPopover };
+      }
+    }
+  }
+
+  const allElements = selectAllWithRoot(doc);
+  for (const element of allElements) {
+    const attrs = element.getAttributeNames().filter((name) => name.startsWith("hy-attr-"));
+    for (const attr of attrs) {
+      const value = element.getAttribute(attr);
+      if (value && value.includes("hy.errors")) {
+        return { handlesErrors: true, hasErrorPopover };
+      }
+    }
+  }
+
+  return { handlesErrors: false, hasErrorPopover };
 }
 
 function isAssetNode(node: Element): boolean {

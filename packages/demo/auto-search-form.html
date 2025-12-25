@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="hy-mode" content="mock" />
     <meta name="hy-mock" content="pattern=/api/users/search path=/mocks/user-search.json" />
-    <title>⭐️HyTDE Search Form</title>
+    <title>⭐️HyTDE Real Time Search UX</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -36,8 +36,10 @@
       <header class="mb-4 flex flex-col gap-2">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 class="text-3xl font-semibold">⭐️HyTDE Search Form</h1>
-            <p class="text-sm opacity-70">Manual submit with history sync in a quad-pane view.</p>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Real Time Search UX</h1>
+            <p class="text-sm opacity-70">
+              History sync, auto-submit, and redirect behavior in a quad-pane view.
+            </p>
           </div>
           <div class="badge badge-outline">Step 4</div>
         </div>
@@ -113,12 +115,16 @@
                   id="search-form"
                   class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
                   hy-get="/api/users/search"
-                  hy-history="sync-push"
+                  hy-history="sync-replace"
+                  hy-submit-on="input"
+                  hy-debounce="300"
                   hy-store="current"
                   hy-unwrap="data"
                 >
                   <h3 class="text-lg font-semibold">User Search</h3>
-                  <p class="mt-1 text-xs text-base-content/60">Manual submit keeps search intent explicit.</p>
+                  <p class="mt-1 text-xs text-base-content/60">
+                    Auto-submit uses debounce + IME guard; history sync replaces the URL.
+                  </p>
                   <div class="mt-4 flex flex-wrap gap-3">
                     <label class="flex flex-1 flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
                       Query
@@ -133,7 +139,6 @@
                       </select>
                     </label>
                   </div>
-                  <button class="btn btn-primary btn-sm mt-4" type="submit">Search</button>
                 </form>
 
                 <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
@@ -154,6 +159,7 @@
                     </li>
                   </ul>
                 </section>
+
               </section>
             </div>
           </div>
@@ -189,12 +195,16 @@
     id="search-form"
     class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
     hy-get="/api/users/search"
-    hy-history="sync-push"
+    hy-history="sync-replace"
+    hy-submit-on="input"
+    hy-debounce="300"
     hy-store="current"
     hy-unwrap="data"
   >
     <h3 class="text-lg font-semibold">User Search</h3>
-    <p class="mt-1 text-xs text-base-content/60">Manual submit keeps search intent explicit.</p>
+    <p class="mt-1 text-xs text-base-content/60">
+      Auto-submit uses debounce + IME guard; history sync replaces the URL.
+    </p>
     <div class="mt-4 flex flex-wrap gap-3">
       <label class="flex flex-1 flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
         Query
@@ -209,7 +219,6 @@
         </select>
       </label>
     </div>
-    <button class="btn btn-primary btn-sm mt-4" type="submit">Search</button>
   </form>
 
   <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
@@ -230,6 +239,7 @@
       </li>
     </ul>
   </section>
+
 </section>
     </script>
     <script type="text/plain" id="source-json-template">

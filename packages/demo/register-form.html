@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="hy-mode" content="mock" />
-    <meta name="hy-mock" content="pattern=/api/users/search path=/mocks/user-search.json" />
-    <title>⭐️HyTDE Search Form</title>
+    <meta name="hy-mock" content="pattern=/api/users/register path=/mocks/register.json method=POST status=201" />
+    <title>⭐️HyTDE Register Form</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -36,8 +36,8 @@
       <header class="mb-4 flex flex-col gap-2">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 class="text-3xl font-semibold">⭐️HyTDE Search Form</h1>
-            <p class="text-sm opacity-70">Manual submit with history sync in a quad-pane view.</p>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Register Form</h1>
+            <p class="text-sm opacity-70">Registration flow with redirect after submit.</p>
           </div>
           <div class="badge badge-outline">Step 4</div>
         </div>
@@ -110,50 +110,52 @@
             <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
               <section class="space-y-6">
                 <form
-                  id="search-form"
+                  id="register-form"
                   class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
-                  hy-get="/api/users/search"
-                  hy-history="sync-push"
-                  hy-store="current"
-                  hy-unwrap="data"
+                  hy-post="/api/users/register"
+                  hy-redirect="/registered.html"
                 >
-                  <h3 class="text-lg font-semibold">User Search</h3>
-                  <p class="mt-1 text-xs text-base-content/60">Manual submit keeps search intent explicit.</p>
-                  <div class="mt-4 flex flex-wrap gap-3">
-                    <label class="flex flex-1 flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-                      Query
-                      <input class="input input-bordered w-full text-sm" name="q" placeholder="name/email" />
+                  <h3 class="text-lg font-semibold">Register Account</h3>
+                  <p class="mt-1 text-xs text-base-content/60">Fields marked required must be valid.</p>
+                  <div class="mt-4 grid gap-3 md:grid-cols-2">
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Full Name
+                      <input class="input input-bordered w-full text-sm peer" name="fullName" required type="text" />
+                      <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
                     </label>
                     <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-                      Status
-                      <select class="select select-bordered text-sm" name="status">
-                        <option value="">All</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
+                      Email
+                      <input class="input input-bordered w-full text-sm peer" name="email" required type="email" />
+                      <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Age
+                      <input class="input input-bordered w-full text-sm" name="age" min="18" type="number" />
+                      <span class="text-xs font-normal normal-case text-base-content/40">Optional.</span>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Plan
+                      <select class="select select-bordered text-sm peer" name="plan" required>
+                        <option value="" disabled selected>Select plan</option>
+                        <option value="starter">Starter</option>
+                        <option value="pro">Pro</option>
+                        <option value="enterprise">Enterprise</option>
                       </select>
+                      <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
                     </label>
                   </div>
-                  <button class="btn btn-primary btn-sm mt-4" type="submit">Search</button>
-                </form>
-
-                <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
-                  <div class="flex items-center justify-between text-xs text-base-content/60">
-                    <span>Results</span>
-                    <span>
-                      Updated
-                      <time hy="current.meta.generatedAt |> date('yyyy-MM-dd')">2025-12-01</time>
-                    </span>
+                  <label class="mt-3 flex items-center gap-2 text-sm">
+                    <input class="checkbox" name="newsletter" type="checkbox" value="true" />
+                    Subscribe to updates
+                    <span class="text-xs text-base-content/40">Optional.</span>
+                  </label>
+                  <div class="mt-2 flex items-center gap-2 text-sm">
+                    <input class="checkbox peer" name="terms" type="checkbox" required />
+                    <span>I agree to the terms</span>
+                    <span class="text-xs text-base-content/40 peer-invalid:text-red-500">Required.</span>
                   </div>
-                  <p class="mt-2 text-sm" hy-dummy>Dummy: 3 results</p>
-                  <ul class="mt-2 space-y-1 text-sm">
-                    <li hy-dummy><a class="link" href="/users/100">Dummy Alice</a></li>
-                    <li hy-dummy><a class="link" href="/users/101">Dummy Bob</a></li>
-                    <li hy-dummy><a class="link" href="/users/102">Dummy Carol</a></li>
-                    <li hy-for="u of current.users">
-                      <a class="link" hy-attr-href="/users/{u.id}"><span hy="u.name"></span></a>
-                    </li>
-                  </ul>
-                </section>
+                  <button class="btn btn-primary btn-sm mt-4" type="submit">Create Account</button>
+                </form>
               </section>
             </div>
           </div>
@@ -186,65 +188,60 @@
     <script type="text/plain" id="source-html-template">
 <section class="space-y-6">
   <form
-    id="search-form"
+    id="register-form"
     class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
-    hy-get="/api/users/search"
-    hy-history="sync-push"
-    hy-store="current"
-    hy-unwrap="data"
+    hy-post="/api/users/register"
+    hy-redirect="/registered.html"
   >
-    <h3 class="text-lg font-semibold">User Search</h3>
-    <p class="mt-1 text-xs text-base-content/60">Manual submit keeps search intent explicit.</p>
-    <div class="mt-4 flex flex-wrap gap-3">
-      <label class="flex flex-1 flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-        Query
-        <input class="input input-bordered w-full text-sm" name="q" placeholder="name/email" />
+    <h3 class="text-lg font-semibold">Register Account</h3>
+    <p class="mt-1 text-xs text-base-content/60">Fields marked required must be valid.</p>
+    <div class="mt-4 grid gap-3 md:grid-cols-2">
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Full Name
+        <input class="input input-bordered w-full text-sm peer" name="fullName" required type="text" />
+        <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
       </label>
       <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-        Status
-        <select class="select select-bordered text-sm" name="status">
-          <option value="">All</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
+        Email
+        <input class="input input-bordered w-full text-sm peer" name="email" required type="email" />
+        <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Age
+        <input class="input input-bordered w-full text-sm" name="age" min="18" type="number" />
+        <span class="text-xs font-normal normal-case text-base-content/40">Optional.</span>
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Plan
+        <select class="select select-bordered text-sm peer" name="plan" required>
+          <option value="" disabled selected>Select plan</option>
+          <option value="starter">Starter</option>
+          <option value="pro">Pro</option>
+          <option value="enterprise">Enterprise</option>
         </select>
+        <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
       </label>
     </div>
-    <button class="btn btn-primary btn-sm mt-4" type="submit">Search</button>
-  </form>
-
-  <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
-    <div class="flex items-center justify-between text-xs text-base-content/60">
-      <span>Results</span>
-      <span>
-        Updated
-        <time hy="current.meta.generatedAt |> date('yyyy-MM-dd')">2025-12-01</time>
-      </span>
+    <label class="mt-3 flex items-center gap-2 text-sm">
+      <input class="checkbox" name="newsletter" type="checkbox" value="true" />
+      Subscribe to updates
+      <span class="text-xs text-base-content/40">Optional.</span>
+    </label>
+    <div class="mt-2 flex items-center gap-2 text-sm">
+      <input class="checkbox peer" name="terms" type="checkbox" required />
+      <span>I agree to the terms</span>
+      <span class="text-xs text-base-content/40 peer-invalid:text-red-500">Required.</span>
     </div>
-    <p class="mt-2 text-sm" hy-dummy>Dummy: 3 results</p>
-    <ul class="mt-2 space-y-1 text-sm">
-      <li hy-dummy><a class="link" href="/users/100">Dummy Alice</a></li>
-      <li hy-dummy><a class="link" href="/users/101">Dummy Bob</a></li>
-      <li hy-dummy><a class="link" href="/users/102">Dummy Carol</a></li>
-      <li hy-for="u of current.users">
-        <a class="link" hy-attr-href="/users/{u.id}"><span hy="u.name"></span></a>
-      </li>
-    </ul>
-  </section>
+    <button class="btn btn-primary btn-sm mt-4" type="submit">Create Account</button>
+  </form>
 </section>
     </script>
     <script type="text/plain" id="source-json-template">
 {
-  "GET /api/users/search": {
-    "data": {
-      "meta": {
-        "generatedAt": "2025-12-01T10:30:00Z"
-      },
-      "users": [
-        { "id": 100, "name": "Alice" },
-        { "id": 101, "name": "Bob" },
-        { "id": 102, "name": "Carol" }
-      ]
-    }
+  "POST /api/users/register": {
+    "status": "ok",
+    "registeredUserId": 100,
+    "registeredAt": "2025-12-01T12:00:00Z"
   }
 }
     </script>

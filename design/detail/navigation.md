@@ -75,41 +75,25 @@ then HyTDE treats submission as **fetch-only**:
 
 See `design/forms.md` for request serialization, `hy-store`, and `hy-history`.
 
-### 3.3 Optional navigation after fetch (`hy-redirect`) (proposal)
+### 3.3 Optional navigation after fetch (`hy-redirect`)
 
 Some flows want “submit via fetch, then move to another page” (e.g. create → show).
 
-Proposal: `hy-redirect` opts into navigation after a fetch-only request completes successfully.
+`hy-redirect` opts into navigation after a fetch-only request completes successfully.
 
-Two forms:
-
-1) Follow server redirect (boolean marker):
-```html
-<form hy-post="/api/users" hy-send-in="json" hy-redirect>
-  ...
-</form>
-```
-Behavior (proposal):
-- If the response is an HTTP redirect with a `Location` header, HyTDE navigates to that URL.
-- Otherwise, no navigation occurs.
-
-2) Navigate to an explicit URL:
+Navigate to an explicit URL:
 ```html
 <form
   hy-post="/api/users"
-  hy-send-in="json"
   hy-redirect="/users/[userId]/show.html#userId={current.createdUserId}"
 >
   ...
 </form>
 ```
-Behavior (proposal):
+Behavior:
 - After a successful response (2xx), HyTDE navigates to the resolved `hy-redirect` URL.
+- Redirects are resolved relative to the current document and blocked for cross-origin URLs.
 
-Navigation method (proposal):
+Navigation method:
 - Default uses `location.assign(...)`.
 - A future extension may add `hy-redirect-mode="assign|replace"` for history control.
-
-Open questions:
-- Do we require `hy-store` for `hy-redirect` (so the redirect URL can reference stored response data)?
-- Should following redirects be the default when `hy-redirect` is present, even for 2xx responses with a JSON `{ redirectTo: ... }` body?

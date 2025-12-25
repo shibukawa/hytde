@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/users/[userId] path=/mocks/user-detail.json" />
+    <meta name="hy-mock" content="pattern=/api/users/1 path=/mocks/user.json method=POST status=201" />
+    <meta name="hy-mock" content="pattern=/api/users/1/fail path=/mocks/user-error.json method=POST status=422" />
+    <meta name="hy-mock" content="pattern=/api/users/1/avatar path=/mocks/user.json method=POST status=204" />
+    <title>⭐️HyTDE Edit Form</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-4 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Edit Form</h1>
+            <p class="text-sm opacity-70">
+              Startup &lt;hy-get&gt;, hy-fill, and mocked submit in a single quad-pane view.
+            </p>
+          </div>
+          <div class="badge badge-outline">Step 3</div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-2">
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Source</h2>
+              <div role="tablist" class="tabs tabs-boxed">
+                <button class="tab tab-active" data-tab="html" type="button">HTML</button>
+                <button class="tab" data-tab="json" type="button">JSON (Mocks)</button>
+              </div>
+            </div>
+            <div id="source-html-blocks" class="space-y-3">
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  CDN Import
+                </div>
+                <pre
+                  id="source-cdn"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading CDN snippet...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  Inline Script
+                </div>
+                <pre
+                  id="source-script"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading script...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  HTML
+                </div>
+                <pre
+                  id="source-html"
+                  class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading source...</pre>
+              </div>
+            </div>
+            <div id="source-json-blocks" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="source-json"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Loading JSON...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Transformed HTML</h2>
+            <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="transformed-html"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Waiting for first render...</pre
+              >
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Rendered Output</h2>
+            <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
+              <section class="space-y-6">
+                <hy-get src="/api/users/1" store="current" unwrap="user"></hy-get>
+
+                <form
+                  id="user-form"
+                  class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
+                  hy-fill="current"
+                >
+                  <h3 class="text-lg font-semibold">Edit Profile</h3>
+                  <div class="mt-4 grid gap-3 md:grid-cols-2">
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Name
+                      <input
+                        class="input input-bordered w-full text-sm peer"
+                        name="name"
+                        placeholder="Name"
+                        required
+                        type="text"
+                      />
+                      <span class="text-xs font-normal normal-case text-red-500 peer-valid:invisible">Required.</span>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Email
+                      <input
+                        class="input input-bordered w-full text-sm"
+                        name="email"
+                        placeholder="Email"
+                        type="email"
+                      />
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Score
+                      <input
+                        class="input input-bordered w-full text-sm"
+                        name="score"
+                        placeholder="0.0"
+                        step="0.1"
+                        type="number"
+                      />
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Last Login
+                      <input
+                        class="input input-bordered w-full text-sm"
+                        name="lastLogin"
+                        type="datetime-local"
+                      />
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Phone
+                      <input
+                        class="input input-bordered w-full text-sm peer"
+                        name="phone"
+                        pattern="\d{3}-\d{4}-\d{4}"
+                        placeholder="090-1234-5678"
+                        required
+                        type="tel"
+                      />
+                      <span class="text-xs font-normal normal-case text-red-500 peer-valid:invisible">Required. Format: 000-0000-0000.</span>
+                    </label>
+                  </div>
+                  <label class="mt-3 flex items-center gap-2 text-sm">
+                    <input class="checkbox" name="isStaff" type="checkbox" value="true" />
+                    Staff account
+                  </label>
+                  <label class="mt-2 flex items-center gap-2 text-sm">
+                    <input class="checkbox" name="subscribed" type="checkbox" />
+                    Subscribed
+                  </label>
+                  <div class="mt-4 flex flex-wrap gap-2">
+                    <button
+                      class="btn btn-primary"
+                      form="user-form"
+                      type="submit"
+                      hy-post="/api/users/1"
+                      hy-store="current"
+                      hy-unwrap="user"
+                    >
+                      Save (Mock 201)
+                    </button>
+                    <button class="btn btn-outline" form="user-form" type="submit" hy-post="/api/users/1/fail">
+                      Save (Mock 422)
+                    </button>
+                  </div>
+                </form>
+
+                <form
+                  id="avatar-form"
+                  class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
+                  enctype="multipart/form-data"
+                >
+                  <h3 class="text-lg font-semibold">Upload Avatar</h3>
+                  <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                    Image File
+                    <input class="file-input file-input-bordered w-full text-sm" name="avatar" type="file" />
+                  </label>
+                  <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                    Caption
+                    <input class="input input-bordered w-full text-sm" name="caption" placeholder="e.g. Profile shot" type="text" />
+                  </label>
+                  <button class="btn btn-secondary mt-4" type="submit" hy-post="/api/users/1/avatar">
+                    Upload (Mock 204)
+                  </button>
+                </form>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Runtime Log</h2>
+            <div
+              id="runtime-log"
+              class="rounded-lg border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed"
+            >
+              <div class="opacity-60">Log entries will appear here.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+      // start-script
+      init();
+      // end-script
+    </script>
+    <template id="source-inline-script">
+      // start-script
+      init();
+      // end-script
+    </template>
+    <script type="text/plain" id="source-html-template">
+<section class="space-y-6">
+  <hy-get src="/api/users/1" store="current" unwrap="user"></hy-get>
+
+  <form
+    id="user-form"
+    class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
+    hy-fill="current"
+  >
+    <h3 class="text-lg font-semibold">Edit Profile</h3>
+    <div class="mt-4 grid gap-3 md:grid-cols-2">
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Name
+        <input class="input input-bordered w-full text-sm peer" name="name" placeholder="Name" required type="text" />
+        <span class="text-xs font-normal normal-case text-red-500 peer-valid:invisible">Required.</span>
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Email
+        <input class="input input-bordered w-full text-sm" name="email" placeholder="Email" type="email" />
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Score
+        <input class="input input-bordered w-full text-sm" name="score" placeholder="0.0" step="0.1" type="number" />
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Last Login
+        <input class="input input-bordered w-full text-sm" name="lastLogin" type="datetime-local" />
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Phone
+        <input class="input input-bordered w-full text-sm peer" name="phone" pattern="\d{3}-\d{4}-\d{4}" placeholder="090-1234-5678" required type="tel" />
+        <span class="text-xs font-normal normal-case text-red-500 peer-valid:invisible">Required. Format: 000-0000-0000.</span>
+      </label>
+    </div>
+    <label class="mt-3 flex items-center gap-2 text-sm">
+      <input class="checkbox" name="isStaff" type="checkbox" value="true" />
+      Staff account
+    </label>
+    <label class="mt-2 flex items-center gap-2 text-sm">
+      <input class="checkbox" name="subscribed" type="checkbox" />
+      Subscribed
+    </label>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <button class="btn btn-primary" form="user-form" type="submit" hy-post="/api/users/1" hy-store="current" hy-unwrap="user">
+        Save (Mock 201)
+      </button>
+      <button class="btn btn-outline" form="user-form" type="submit" hy-post="/api/users/1/fail">Save (Mock 422)</button>
+    </div>
+  </form>
+
+  <form id="avatar-form" class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm" enctype="multipart/form-data">
+    <h3 class="text-lg font-semibold">Upload Avatar</h3>
+    <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+      Image File
+      <input class="file-input file-input-bordered w-full text-sm" name="avatar" type="file" />
+    </label>
+    <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+      Caption
+      <input class="input input-bordered w-full text-sm" name="caption" placeholder="e.g. Profile shot" type="text" />
+    </label>
+    <button class="btn btn-secondary mt-4" type="submit" hy-post="/api/users/1/avatar">Upload (Mock 204)</button>
+  </form>
+</section>
+    </script>
+    <script type="text/plain" id="source-json-template">
+{
+  "GET /api/users/1": {
+    "user": {
+      "id": 1,
+      "name": "Alice",
+      "email": "alice@example.com",
+      "score": 98.6,
+      "lastLogin": "2025-12-05T10:30",
+      "phone": "090-1234-5678",
+      "subscribed": true,
+      "createdAt": "2025-12-01T10:20:30Z",
+      "isAdmin": false,
+      "isStaff": true,
+      "teams": [
+        { "name": "Core" },
+        { "name": "Platform" }
+      ],
+      "profileUrl": "/users/1"
+    }
+  },
+  "POST /api/users/1": {
+    "user": {
+      "id": 100,
+      "name": "alice",
+      "email": "alice@example.com",
+      "score": 91.2,
+      "lastLogin": "2025-12-06T09:15",
+      "phone": "090-1234-5678",
+      "subscribed": false,
+      "isStaff": true,
+      "teams": [
+        { "name": "core" },
+        { "name": "platform" }
+      ]
+    }
+  },
+  "POST /api/users/1/avatar": {
+    "status": "ok"
+  },
+  "POST /api/users/1/fail": {
+    "message": "Validation failed"
+  }
+}
+    </script>
+    <template id="source-cdn-template">
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/hytde-standalone.js"&gt;&lt;/script&gt;
+    </template>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

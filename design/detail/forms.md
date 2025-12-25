@@ -60,8 +60,19 @@ For `hy-get`:
 - HyTDE builds the request URL by adding a query string derived from the form controls.
 
 For non-GET (`hy-post`/`hy-put`/`hy-patch`/`hy-delete`):
-- If `hy-send-in="json"` is present, HyTDE sends `Content-Type: application/json` with a JSON body.
-- Otherwise, HyTDE may use `multipart/form-data` or `application/x-www-form-urlencoded` (project-defined; v1 should pick one and document it).
+- If the form has **no** `enctype` attribute and no file inputs, HyTDE sends `application/json` with a JSON body.
+- If the form has file inputs, HyTDE uses `multipart/form-data` (regardless of `enctype`).
+- If `enctype="application/x-www-form-urlencoded"` is explicitly set, HyTDE sends URL-encoded form data.
+- If `enctype="multipart/form-data"` is explicitly set, HyTDE sends multipart form data.
+
+Type handling (JSON default):
+- `input[type="number"]`: parsed as number (floats allowed); empty/invalid → `null`.
+- `input[type="checkbox"]` with a `value` attribute: checked → string value; unchecked → omitted.
+- `input[type="checkbox"]` without a `value` attribute: boolean `true/false`.
+- `input[type="radio"]`: checked → string value; unchecked → omitted.
+- `input[type="datetime-local"]`, `input[type="tel"]`, text/select/textarea: strings.
+
+For non-JSON encodings (`multipart/form-data`, `application/x-www-form-urlencoded`), values are stringified before submission.
 
 ## 3. Response → Store → Rerender
 
@@ -73,6 +84,8 @@ Fetch-only forms should store responses explicitly:
 - `hy-store="<namespace>"` stores the response into `hyState.<namespace>` and exposes `<namespace>` as a selector alias.
 - `hy-unwrap="<key>"` can unwrap a top-level field before storing (e.g. unwrap `data` from `{ data: ... }`).
 
+Store namespaces are global (no lexical scope). A search form and a distant table can share the same `hy-store` namespace even if they are not siblings in the DOM. Scoped behaviors remain on request directives (e.g., `<hy-get>` islands), but once data is written to `hyState.<namespace>`, any consumer can read it.
+
 See `design/data-store.md`.
 
 ### 3.2 Rerender
@@ -80,6 +93,10 @@ See `design/data-store.md`.
 After updating the store namespace, HyTDE re-evaluates directives that depend on the changed data:
 - structural directives: `hy-if`, `hy-for`, `hy-dummy`
 - bindings: `hy`, `hy-attr-*`
+
+Before the first request runs, a bound namespace may be `undefined`. `hy-for` MUST treat `undefined`/`null` as an empty collection so templates like a search table render zero rows until results arrive.
+
+This store-first pattern enables partial updates across distant regions: a search form can live in one section, write to `hyState.searchresult`, and a table elsewhere will rerender when that namespace updates.
 
 This is how a search form can update a list/table without replacing the entire page.
 
@@ -169,7 +186,7 @@ Attributes:
 - `hy-submit-on`: whitespace-separated events that trigger an automatic submit. Recommended values:
   - `change` (default): good for selects/checkboxes
   - `input`: live filtering as the user types (pair with debounce)
-- `hy-debounce`: debounce in milliseconds for auto-submit triggers (default: 0)
+- `hy-debounce`: debounce in milliseconds for auto-submit triggers (default: 200)
 
 Behavior:
 - HyTDE listens for the specified events on the form controls and triggers the same fetch submission as a normal form submit.
@@ -182,7 +199,7 @@ IME handling:
   - Default: `compositionend` schedules an auto-submit (subject to debounce).
   - Optional: defer until `blur` (useful if you prefer to submit only after the user leaves the field).
 
-Configuration (proposal):
+Configuration:
 - `hy-submit-compose="end|blur"`:
   - `end` (default): submit on `compositionend`
   - `blur`: submit on `blur` instead of `compositionend`

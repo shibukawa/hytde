@@ -2,6 +2,73 @@
 
 This document specifies the behavior of `hy-get` (and related fetch directives) regarding request deduplication and debug-time mocking.
 
+## 0. Fetch Declaration Styles
+
+HyTDE supports two declaration styles for `hy-get`:
+- Attribute form: `hy-get="/api/..."` on a container element (existing behavior).
+- Element form: a dedicated `<hy-get>` tag (preferred for multiple requests per form).
+
+The element form enables multiple requests within a single form or section without overloading a single element with multiple directives.
+
+Example (form with multiple requests):
+```html
+<form>
+  <hy-get src="/api/summary" store="summary"></hy-get>
+  <hy-get src="/api/results" store="results"></hy-get>
+  <!-- form controls -->
+</form>
+```
+
+### 0.1 Hoisting scope for `<hy-get>`
+
+For `<hy-get>`, the request scope is hoisted to its parent element:
+- The parent element is treated as the scope root for selectors and `hy-store` usage.
+- The `<hy-get>` element itself does not render content; it is an instruction only.
+- Multiple `<hy-get>` elements under the same parent run in parallel on initial render and on form submit.
+
+If a `<hy-get>` is placed directly under `<form>`, it still behaves like a startup request. Remember: in-form `<hy-get>` is intended for preset data (used with `hy-fill`) and is **not** tied to submit behavior.
+
+If a `<hy-get>` is placed under a non-form parent, it behaves like a startup request and runs during initial render.
+
+Note:
+- Attribute form still behaves as a container-scoped request (current behavior).
+- Mixed usage is allowed but discouraged within the same container.
+
+### 0.2 Forms and element placement
+
+- Form actions continue to use attribute form (`hy-get`, `hy-post`, etc.) on `<form>` as the primary mechanism.
+- `<hy-get>` inside `<form>` is reserved for preset data fetching to drive form fills (not submit).
+- When using `<hy-get>`, fill-related attributes are unprefixed (e.g. `fill`, `fill-into`), because the element itself already scopes to HyTDE.
+  - `fill-into` takes a CSS selector string (e.g. `fill-into="#user-form"`).
+  - `fill-into` is optional; if omitted, no default fill target is assumed.
+- Attribute `hy-get` executes on form action/submit; tag `<hy-get>` executes during startup load.
+- For flexibility, request attributes MAY also be allowed on `<button>`/`<input type="submit">` elements when their semantics are clearly defined (future clarification).
+- `<hy-get>` remains the preferred tag form for startup data fetches outside form submission.
+
+### 0.4 Form submission encoding (non-GET)
+
+For non-GET (`hy-post`/`hy-put`/`hy-patch`/`hy-delete`) submissions:
+- If the form has **no** `enctype` attribute and no file inputs, HyTDE sends `application/json` with a JSON body.
+- If the form has file inputs, HyTDE uses `multipart/form-data` (regardless of `enctype`).
+- If `enctype="application/x-www-form-urlencoded"` is explicitly set, HyTDE sends URL-encoded form data.
+- If `enctype="multipart/form-data"` is explicitly set, HyTDE sends multipart form data.
+
+### 0.3 Scope-aware access diagnostics (proposal)
+
+When a selector fails to resolve due to scope boundaries, HyTDE SHOULD emit a diagnostic that distinguishes:
+- **Scope miss** (the name exists in another scope but is not accessible here)
+- vs. **Missing data** (the name does not exist anywhere)
+
+Example message:
+> “`current.user` is out of scope here. Move the `hy-get` closer to this template or declare another `hy-get`. If the URL is the same, HyTDE will dedupe and issue only one request.”
+
+Implementation guidance:
+- Track scopes as pairs of `(name, scopeRoot)` at parse time so a lookup can tell “name exists but in a different scope”.
+- Surface scope-miss diagnostics into `hy.errors` so the default error UX can surface them.
+
+Form fill binding:
+- If multiple responses target the same form, later fill operations win (last-write-wins).
+
 ## 1. Request Deduplication (Next.js-like)
 
 HyTDE SHOULD avoid issuing duplicate requests when multiple `hy-get` directives resolve to the same URL within the same execution scope.

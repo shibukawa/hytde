@@ -50,7 +50,7 @@ Uniqueness:
 If a table is editable and its changes must be submitted with a form, link the form by adding a hidden control:
 
 ```html
-<form id="user-form" hy-post="/api/users/batch" hy-send-in="json">
+<form id="user-form" hy-post="/api/users/batch">
   <input type="hidden" hy-table-data="users" />
   <button type="submit">Save</button>
 </form>
@@ -71,7 +71,7 @@ If the hidden input has `hy-table-submit="all"`, HyTDE MUST include the full cur
 
 Example:
 ```html
-<form hy-post="/api/departments/save" hy-send-in="json">
+<form hy-post="/api/departments/save">
   <input type="hidden" hy-table-data="departments" hy-table-submit="all" />
   <button type="submit">Save</button>
 </form>
@@ -194,7 +194,7 @@ The enhanced table maintains an internal change set (delta):
 
 If the form contains `<input type="hidden" hy-table-data="<table-key>">` (or the single-table shorthand `hy-table-data` with no value):
 - On form `submit`, HyTDE MUST serialize the table’s pending change set and include it in the outgoing request body.
-- For `hy-send-in="json"`, HyTDE SHOULD merge a table payload into the form JSON under a stable key.
+- For JSON submission (the default when no `enctype` and no file inputs), HyTDE SHOULD merge a table payload into the form JSON under a stable key.
 - For non-JSON submissions, HyTDE MAY set the hidden input value to a JSON string before the form is submitted (implementation-defined).
 
 Default JSON envelope (proposal):

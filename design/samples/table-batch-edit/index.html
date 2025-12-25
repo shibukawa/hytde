@@ -11,7 +11,7 @@
     <main>
       <h1>Users (Batch Edit)</h1>
 
-      <form id="batch-form" hy-post="/api/users/batch" hy-send-in="json">
+      <form id="batch-form" hy-post="/api/users/batch">
         <input type="hidden" hy-table-data="users" />
         <!-- Optional: add `hy-table-submit="all"` to send full rows instead of a delta -->
         <button type="submit">Save All</button>

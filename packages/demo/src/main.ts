@@ -172,7 +172,7 @@ const highlightTag = (tag: string, stack: Array<{ textClass: string; tagClass: s
   const closing = tag.startsWith("</");
   const selfClosing = tag.endsWith("/>");
   const inner = tag.slice(closing ? 2 : 1, selfClosing ? -2 : -1).trim();
-  const parts = inner.match(/^([^\s/]+)(.*)$/);
+  const parts = inner.match(/^([^\s/]+)([\s\S]*)$/);
   const tagName = parts?.[1] ?? "";
   const attrs = parts?.[2] ?? "";
 

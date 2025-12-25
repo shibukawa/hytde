@@ -13,6 +13,17 @@ type HyLogEntry = {
   timestamp: number;
 };
 
+type HyError = {
+  type: "request" | "transform" | "syntax" | "data";
+  message: string;
+  detail?: {
+    url?: string;
+    method?: string;
+    status?: number;
+  };
+  timestamp: number;
+};
+
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
 
@@ -34,7 +45,16 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   if (errors.length > 0) {
     const hy = (doc.defaultView ?? globalThis).hy;
     if (hy && Array.isArray(hy.errors)) {
-      hy.errors = [...hy.errors, ...errors];
+      const nextErrors: HyError[] = errors.map((error) => ({
+        type: "request",
+        message: error.message,
+        detail: {
+          url: error.url,
+          method: error.method
+        },
+        timestamp: Date.now()
+      }));
+      hy.errors = [...hy.errors, ...nextErrors];
     }
     if (typeof console !== "undefined") {
       for (const error of errors) {

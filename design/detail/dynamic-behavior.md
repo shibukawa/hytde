@@ -48,7 +48,7 @@ For business applications, submitting forms as JSON is often useful (especially 
 HyTDE supports JSON submission when the form is marked with:
 
 ```html
-<form hy-send-in="json" ...>
+<form ...>
 ```
 
 Behavior:
@@ -56,8 +56,8 @@ Behavior:
 - The JSON body is built from the form controls (similar to `FormData`), plus additional HyTDE-managed payloads (e.g. tables; see `design/table.md`).
 
 About `enctype="application/json"`:
-- HTML forms do not natively support `application/json` as `enctype` (browsers will ignore it for native submission).
-- HyTDE MAY treat `enctype="application/json"` as a hint when deciding JSON submission, but templates SHOULD use `hy-send-in="json"` to avoid relying on non-standard behavior.
+Form submission encoding for HyTDE-managed requests follows the rules in `design/detail/fetching.md` (JSON default unless `enctype`/file inputs require otherwise).
+- Use the standard `enctype` attribute only when you want to force URL-encoded or multipart submission; otherwise HyTDE uses JSON by default for non-GET.
 
 ## 3. Custom Constraint Rules (Optional)
 
@@ -155,7 +155,7 @@ Inline containers (optional):
 ```html
 <meta name="hy-mode" content="production" />
 
-<form hy-post="/api/users" hy-send-in="json" hy-form-validator="signup">
+<form hy-post="/api/users" hy-form-validator="signup">
   <label>
     Email
     <input id="email" name="email" required type="email" />
