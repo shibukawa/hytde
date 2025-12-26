@@ -6,14 +6,26 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "default": "./dist/production-auto/index.js"
+    },
+    "./debug": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/debug-auto/index.js"
+    },
+    "./no-auto": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/production-manual/index.js"
+    },
+    "./no-auto-debug": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/debug-manual/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && node ../../scripts/build-standalone.mjs",
     "test": "echo \"no tests\""
   },
   "dependencies": {

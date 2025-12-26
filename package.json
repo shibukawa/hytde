@@ -9,12 +9,22 @@
   },
   "scripts": {
     "build": "npm run build -w packages/runtime && npm run build -w packages/parser && npm run build -w packages/precompile && npm run build -w packages/vite-plugin && npm run build -w packages/standalone && npm run build -w packages/demo",
+    "build:standalone": "npm run build -w packages/standalone",
     "build:demo": "npm run build -w packages/demo",
+    "prestandalone": "npm run build:standalone",
+    "standalone": "npx serve packages/standalone/dist/production-auto -l 4173",
+    "prestandalone:manual": "npm run build:standalone",
+    "standalone:manual": "npx serve packages/standalone/dist/production-manual -l 4173",
+    "prestandalone:debug": "npm run build:standalone",
+    "standalone:debug": "npx serve packages/standalone/dist/debug-auto -l 4173",
+    "prestandalone:debug:manual": "npm run build:standalone",
+    "standalone:debug:manual": "npx serve packages/standalone/dist/debug-manual -l 4173",
     "dev": "npm run dev --workspaces",
     "dev:demo": "npm run dev -w packages/demo",
     "test": "npm run test --workspaces"
   },
   "devDependencies": {
+    "serve": "^14.2.5",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"
   }

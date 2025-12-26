@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HyTDE Standalone - Production Auto</title>
+  </head>
+  <body>
+    <main>
+      <h1>HyTDE Standalone - Production Auto</h1>
+      <p>Auto init variant. Dummy placeholders should disappear once the runtime starts.</p>
+
+      <section>
+        <h2>Init Check</h2>
+        <p hy-dummy>Waiting for init (this line should disappear).</p>
+        <p>Static content remains after init.</p>
+      </section>
+
+      <section>
+        <h2>Template Cleanup</h2>
+        <ul>
+          <li hy-dummy>Dummy item A</li>
+          <li hy-dummy>Dummy item B</li>
+        </ul>
+        <p>After init, the dummy items should be removed.</p>
+      </section>
+    </main>
+
+    <script type="module" src="../../src/entry.production-auto.ts"></script>
+  </body>
+</html>
