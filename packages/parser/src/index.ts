@@ -48,6 +48,11 @@ export interface RequestTarget {
   store: string | null;
   unwrap: string | null;
   method: string;
+  kind: "fetch" | "stream" | "sse" | "polling";
+  streamInitial: number;
+  streamTimeoutMs: number | null;
+  streamKey: string | null;
+  pollIntervalMs: number | null;
   isForm: boolean;
   trigger: "startup" | "submit";
   form: HTMLFormElement | null;
@@ -72,6 +77,7 @@ export interface IfChain {
 
 export interface ParsedSubtree {
   dummyElements: Element[];
+  cloakElements: Element[];
   forTemplates: ForTemplate[];
   ifChains: IfChain[];
   textBindings: TextBinding[];
@@ -105,6 +111,7 @@ export function parseDocument(doc: Document): ParsedDocument {
 
 export function parseSubtree(root: ParentNode): ParsedSubtree {
   const dummyElements = selectWithRoot(root, "[hy-dummy]");
+  const cloakElements = selectWithRoot(root, "[hy-cloak]");
   const forTemplates = parseForTemplates(root);
   const ifChains = parseIfChains(root);
   const textBindings = parseTextBindings(root);
@@ -113,6 +120,7 @@ export function parseSubtree(root: ParentNode): ParsedSubtree {
 
   return {
     dummyElements,
+    cloakElements,
     forTemplates,
     ifChains,
     textBindings,
@@ -303,6 +311,11 @@ function parseRequestTargets(doc: Document): RequestTarget[] {
       store,
       unwrap,
       method: methodAttr.method,
+      kind: "fetch",
+      streamInitial: 0,
+      streamTimeoutMs: null,
+      streamKey: null,
+      pollIntervalMs: null,
       isForm,
       trigger,
       form,
@@ -312,6 +325,9 @@ function parseRequestTargets(doc: Document): RequestTarget[] {
 
   const tagTargets = parseGetTagTargets(doc);
   targets.push(...tagTargets);
+  targets.push(...parseStreamTargets(doc));
+  targets.push(...parseSseTargets(doc));
+  targets.push(...parsePollingTargets(doc));
 
   return targets;
 }
@@ -369,6 +385,11 @@ function parseGetTagTargets(doc: Document): RequestTarget[] {
       store,
       unwrap,
       method: "GET",
+      kind: "fetch",
+      streamInitial: 0,
+      streamTimeoutMs: null,
+      streamKey: null,
+      pollIntervalMs: null,
       isForm: false,
       trigger: "startup",
       form: null,
@@ -377,6 +398,162 @@ function parseGetTagTargets(doc: Document): RequestTarget[] {
   }
 
   return targets;
+}
+
+function parseStreamTargets(doc: Document): RequestTarget[] {
+  const elements = Array.from(doc.querySelectorAll("hy-get-stream"));
+  const targets: RequestTarget[] = [];
+
+  for (const element of elements) {
+    const urlTemplate = element.getAttribute("src");
+    const store = element.getAttribute("store");
+    const unwrap = element.getAttribute("unwrap");
+    const streamInitial = parseStreamInitial(element);
+    const streamTimeoutMs = parseStreamTimeout(element);
+    const streamKey = parseStreamKey(element);
+    const parent = element.parentElement;
+    element.remove();
+    if (!urlTemplate || !parent) {
+      continue;
+    }
+
+    targets.push({
+      element: parent,
+      urlTemplate,
+      store,
+      unwrap,
+      method: "GET",
+      kind: "stream",
+      streamInitial,
+      streamTimeoutMs,
+      streamKey,
+      pollIntervalMs: null,
+      isForm: false,
+      trigger: "startup",
+      form: null,
+      fillInto: null
+    });
+  }
+
+  return targets;
+}
+
+function parseSseTargets(doc: Document): RequestTarget[] {
+  const elements = Array.from(doc.querySelectorAll("hy-sse"));
+  const targets: RequestTarget[] = [];
+
+  for (const element of elements) {
+    const urlTemplate = element.getAttribute("src");
+    const store = element.getAttribute("store");
+    const unwrap = element.getAttribute("unwrap");
+    const streamInitial = parseStreamInitial(element);
+    const streamTimeoutMs = parseStreamTimeout(element);
+    const streamKey = parseStreamKey(element);
+    const parent = element.parentElement;
+    element.remove();
+    if (!urlTemplate || !parent) {
+      continue;
+    }
+
+    targets.push({
+      element: parent,
+      urlTemplate,
+      store,
+      unwrap,
+      method: "GET",
+      kind: "sse",
+      streamInitial,
+      streamTimeoutMs,
+      streamKey,
+      pollIntervalMs: null,
+      isForm: false,
+      trigger: "startup",
+      form: null,
+      fillInto: null
+    });
+  }
+
+  return targets;
+}
+
+function parseStreamInitial(element: Element): number {
+  const raw = element.getAttribute("stream-initial");
+  if (!raw) {
+    return 0;
+  }
+  const parsed = Number(raw);
+  if (!Number.isNaN(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return 0;
+}
+
+function parseStreamTimeout(element: Element): number | null {
+  const raw = element.getAttribute("stream-timeout");
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  if (!Number.isNaN(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return null;
+}
+
+function parseStreamKey(element: Element): string | null {
+  const raw = element.getAttribute("stream-key");
+  if (!raw) {
+    return null;
+  }
+  return raw.trim() || null;
+}
+
+function parsePollingTargets(doc: Document): RequestTarget[] {
+  const elements = Array.from(doc.querySelectorAll("hy-get-polling"));
+  const targets: RequestTarget[] = [];
+
+  for (const element of elements) {
+    const urlTemplate = element.getAttribute("src");
+    const store = element.getAttribute("store");
+    const unwrap = element.getAttribute("unwrap");
+    const pollIntervalMs = parsePollingInterval(element);
+    const parent = element.parentElement;
+    element.remove();
+    if (!urlTemplate || !parent) {
+      continue;
+    }
+
+    targets.push({
+      element: parent,
+      urlTemplate,
+      store,
+      unwrap,
+      method: "GET",
+      kind: "polling",
+      streamInitial: 0,
+      streamTimeoutMs: null,
+      streamKey: null,
+      pollIntervalMs,
+      isForm: false,
+      trigger: "startup",
+      form: null,
+      fillInto: null
+    });
+  }
+
+  return targets;
+}
+
+function parsePollingInterval(element: Element): number | null {
+  const raw = element.getAttribute("interval");
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  if (!Number.isNaN(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return null;
 }
 
 export function parseImportTargets(root: ParentNode): ImportTarget[] {

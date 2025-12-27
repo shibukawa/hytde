@@ -3,17 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="hy-mode" content="mock" />
-    <title>HyTDE Standalone - Debug Auto</title>
+    <title>HyTDE Standalone - Production Manual</title>
   </head>
   <body>
     <main>
-      <h1>HyTDE Standalone - Debug Auto</h1>
-      <p>Auto init variant. Check the console for debug logs after load.</p>
+      <h1>HyTDE Standalone - Production Manual</h1>
+      <p>Manual init variant. Run <code>window.hyInit()</code> in the console to start.</p>
 
       <section>
         <h2>Init Check</h2>
-        <p hy-dummy>Waiting for init (this line should disappear).</p>
+        <p hy-dummy>Waiting for init (this line should disappear after hyInit()).</p>
         <p>Static content remains after init.</p>
       </section>
 
@@ -27,6 +26,13 @@
       </section>
     </main>
 
-    <script type="module" src="../../src/entry.debug-auto.ts"></script>
+    <script type="module" src="./index.ts"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        if (typeof window.hyInit === "function") {
+          window.hyInit();
+        }
+      });
+    </script>
   </body>
 </html>

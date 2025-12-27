@@ -21,12 +21,47 @@ export interface HyLogEntry {
   timestamp: number;
 }
 
+export type PluginState = Record<string, unknown> | null;
+
+export type PluginWatchTarget =
+  | { type: "store"; selector: string }
+  | { type: "dom"; selector: string };
+
+export type PluginParseContext = {
+  doc: Document;
+  parsed: ParsedDocument;
+};
+
+export type PluginParseResult = {
+  state?: PluginState;
+  watches?: PluginWatchTarget[];
+};
+
+export type PluginChange = PluginWatchTarget;
+
+export type PluginRenderContext = {
+  doc: Document;
+  parsed: ParsedDocument;
+  reason: "init" | "update";
+  changes?: PluginChange[];
+};
+
+export interface HytdePlugin {
+  name: string;
+  onParse?: (context: PluginParseContext) => PluginParseResult | void;
+  onRender?: (context: PluginRenderContext, state: PluginState) => void;
+  onBeforeUnload?: (context: PluginRenderContext, state: PluginState) => string | void;
+  onDispose?: (context: PluginRenderContext, state: PluginState) => void;
+}
+
 export interface HyGlobals {
   loading: boolean;
   errors: HyError[];
   onRenderComplete?: (callback: () => void) => void;
   onLog?: (callback: (entry: HyLogEntry) => void) => void;
   onError?: (errors: HyError[]) => void;
+  plugins?: HytdePlugin[];
+  registerPlugin?: (plugin: HytdePlugin) => void;
   registerTransform?: (
     name: string,
     inputType: JsonScalarType,
@@ -71,6 +106,11 @@ export interface ParsedRequestTarget {
   store: string | null;
   unwrap: string | null;
   method: string;
+  kind: "fetch" | "stream" | "sse" | "polling";
+  streamInitial: number;
+  streamTimeoutMs: number | null;
+  streamKey: string | null;
+  pollIntervalMs: number | null;
   isForm: boolean;
   trigger: "startup" | "submit";
   form: HTMLFormElement | null;
@@ -101,6 +141,7 @@ export interface ParsedIfChain {
 
 export interface ParsedSubtree {
   dummyElements: Element[];
+  cloakElements: Element[];
   forTemplates: ParsedForTemplate[];
   ifChains: ParsedIfChain[];
   textBindings: ParsedTextBinding[];
@@ -129,6 +170,18 @@ interface RuntimeState {
   parsed: ParsedDocument;
   parser: ParserAdapter;
   bootstrapPending: boolean;
+  plugins: PluginRegistration[];
+  pluginsInitialized: boolean;
+  unloadListenerAttached: boolean;
+  disposed: boolean;
+  cloakApplied: boolean;
+  appendStores: Set<string> | null;
+  appendLogOnlyNew: boolean;
+  streamKeyCache: Map<string, Set<string>>;
+  sseSources: Map<ParsedRequestTarget, EventSource>;
+  pollingTimers: Map<ParsedRequestTarget, number>;
+  pollingMockQueues: Map<ParsedRequestTarget, { items: unknown[]; index: number }>;
+  streamStores: string[];
   requestCache: Map<string, Promise<unknown>>;
   requestCounter: number;
   pendingRequests: number;
@@ -152,6 +205,12 @@ interface ErrorUiState {
   clearButton: HTMLButtonElement;
   closeButton: HTMLButtonElement;
 }
+
+type PluginRegistration = {
+  plugin: HytdePlugin;
+  state: PluginState;
+  watches: PluginWatchTarget[];
+};
 
 const runtimeStates = new WeakMap<Document, RuntimeState>();
 const RENDER_CALLBACK_KEY = "__hytdeRenderCallbacks";
@@ -195,6 +254,7 @@ export function createRuntime(parser: ParserAdapter): Runtime {
 
       const state = getRuntimeState(doc, globals, parsed, parser);
       state.mockRules = parsed.executionMode === "mock" ? parsed.mockRules : [];
+      setupPlugins(state);
 
       void bootstrapRuntime(state);
     }
@@ -237,6 +297,55 @@ function ensureGlobals(scope: typeof globalThis): RuntimeGlobals {
   };
 }
 
+function setupPlugins(state: RuntimeState): void {
+  const hy = state.globals.hy as HyGlobals & Record<string, unknown>;
+  const list = Array.isArray(hy.plugins) ? hy.plugins : [];
+  if (!Array.isArray(hy.plugins)) {
+    hy.plugins = list;
+  }
+
+  const registerPluginInternal = (plugin: HytdePlugin): void => {
+    if (!plugin || typeof plugin.name !== "string") {
+      return;
+    }
+    if (state.plugins.some((entry) => entry.plugin === plugin || entry.plugin.name === plugin.name)) {
+      return;
+    }
+    const parseResult = plugin.onParse ? plugin.onParse({ doc: state.doc, parsed: state.parsed }) : undefined;
+    const watches = parseResult?.watches ?? [];
+    const pluginState = parseResult?.state ?? null;
+    state.plugins.push({ plugin, state: pluginState, watches });
+  };
+
+  hy.registerPlugin = (plugin: HytdePlugin) => {
+    if (!list.includes(plugin)) {
+      list.push(plugin);
+    }
+    registerPluginInternal(plugin);
+  };
+
+  for (const plugin of list) {
+    registerPluginInternal(plugin);
+  }
+
+  if (!state.unloadListenerAttached) {
+    const scope = state.doc.defaultView ?? globalThis;
+    scope.addEventListener("beforeunload", (event) => {
+      const message = collectBeforeUnloadMessage(state);
+      if (message) {
+        event.preventDefault();
+        event.returnValue = message;
+        return message;
+      }
+      return undefined;
+    });
+    scope.addEventListener("pagehide", () => {
+      disposePlugins(state);
+    });
+    state.unloadListenerAttached = true;
+  }
+}
+
 function getRuntimeState(
   doc: Document,
   globals: RuntimeGlobals,
@@ -254,6 +363,9 @@ function getRuntimeState(
   const hy = globals.hy as HyGlobals & Record<string, unknown>;
   const renderCallbacks = ensureCallbackStore(hy, RENDER_CALLBACK_KEY) as Array<() => void>;
   const logCallbacks = ensureCallbackStore(hy, LOG_CALLBACK_KEY) as Array<(entry: HyLogEntry) => void>;
+  const streamStores = parsed.requestTargets
+    .filter((target) => (target.kind === "stream" || target.kind === "sse") && target.store)
+    .map((target) => target.store as string);
 
   const state: RuntimeState = {
     doc,
@@ -262,6 +374,18 @@ function getRuntimeState(
     parsed,
     parser,
     bootstrapPending: false,
+    plugins: [],
+    pluginsInitialized: false,
+    unloadListenerAttached: false,
+    disposed: false,
+    cloakApplied: false,
+    appendStores: null,
+    appendLogOnlyNew: false,
+    streamKeyCache: new Map(),
+    sseSources: new Map(),
+    pollingTimers: new Map(),
+    pollingMockQueues: new Map(),
+    streamStores,
     requestCache: new Map(),
     requestCounter: 0,
     pendingRequests: 0,
@@ -279,6 +403,81 @@ function getRuntimeState(
 
   runtimeStates.set(doc, state);
   return state;
+}
+
+function buildPluginContext(
+  state: RuntimeState,
+  reason: "init" | "update",
+  changes?: PluginChange[]
+): PluginRenderContext {
+  return {
+    doc: state.doc,
+    parsed: state.parsed,
+    reason,
+    changes
+  };
+}
+
+function shouldRunPlugin(registration: PluginRegistration, changes?: PluginChange[]): boolean {
+  if (registration.watches.length === 0) {
+    return true;
+  }
+  if (registration.watches.some((watch) => watch.type === "dom")) {
+    return true;
+  }
+  if (!changes || changes.length === 0) {
+    return false;
+  }
+  return registration.watches.some((watch) => {
+    if (watch.type !== "store") {
+      return false;
+    }
+    return changes.some((change) => change.type === "store" && change.selector === watch.selector);
+  });
+}
+
+function runPluginRender(state: RuntimeState, reason: "init" | "update", changes?: PluginChange[]): void {
+  const context = buildPluginContext(state, reason, changes);
+  for (const registration of state.plugins) {
+    if (reason === "update" && !shouldRunPlugin(registration, changes)) {
+      continue;
+    }
+    registration.plugin.onRender?.(context, registration.state);
+  }
+}
+
+function collectBeforeUnloadMessage(state: RuntimeState): string | null {
+  if (state.plugins.length === 0) {
+    return null;
+  }
+  const context = buildPluginContext(state, "update");
+  for (const registration of state.plugins) {
+    const message = registration.plugin.onBeforeUnload?.(context, registration.state);
+    if (typeof message === "string" && message.trim() !== "") {
+      return message;
+    }
+  }
+  return null;
+}
+
+function disposePlugins(state: RuntimeState): void {
+  if (state.disposed) {
+    return;
+  }
+  state.disposed = true;
+  const context = buildPluginContext(state, "update");
+  for (const registration of state.plugins) {
+    registration.plugin.onDispose?.(context, registration.state);
+  }
+  for (const source of state.sseSources.values()) {
+    source.close();
+  }
+  state.sseSources.clear();
+  for (const timer of state.pollingTimers.values()) {
+    window.clearInterval(timer);
+  }
+  state.pollingTimers.clear();
+  state.pollingMockQueues.clear();
 }
 
 function parseParams(search: string, hash: string): Record<string, string> {
@@ -431,7 +630,8 @@ async function bootstrapRuntime(state: RuntimeState): Promise<void> {
     await Promise.all([runStartupRequests(state), runHistoryAutoSubmits(state)]);
     state.bootstrapPending = false;
   }
-  renderDocument(state);
+  const appendStores = state.streamStores;
+  renderDocument(state, undefined, appendStores.length > 0 ? { appendStores } : undefined);
 }
 async function runStartupRequests(state: RuntimeState): Promise<void> {
   const requests: Promise<unknown>[] = [];
@@ -1097,6 +1297,18 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
   if (!element.isConnected) {
     return;
   }
+  if (target.kind === "stream") {
+    await handleStreamRequest(target, state);
+    return;
+  }
+  if (target.kind === "sse") {
+    await handleSseRequest(target, state);
+    return;
+  }
+  if (target.kind === "polling") {
+    await handlePollingRequest(target, state);
+    return;
+  }
   if (target.form && state.inFlightForms.has(target.form)) {
     emitLog(state, {
       type: "info",
@@ -1173,7 +1385,7 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
       maybeRedirectAfterSubmit(target, payload, state);
       cleanupRequestTarget(target);
       if (target.store && !state.bootstrapPending) {
-        renderDocument(state);
+        renderDocument(state, [{ type: "store", selector: target.store }]);
       }
     })
     .catch((error: unknown) => {
@@ -1196,6 +1408,424 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
   }
 
   await requestPromise;
+}
+
+async function handleStreamRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
+  const { element, urlTemplate } = target;
+  const scope = buildScopeStack(element, state);
+  const resolvedUrl = interpolateTemplate(urlTemplate, scope, state, {
+    urlEncodeTokens: true
+  });
+  const { finalUrl, init } = buildRequestInit(target, resolvedUrl.value, state.doc);
+  const requestId = ++state.requestCounter;
+  const gate = createStreamGate(target);
+
+  emitLog(state, {
+    type: "request",
+    message: `stream:start(${requestId})`,
+    detail: { url: finalUrl, method: target.method },
+    timestamp: Date.now()
+  });
+
+  state.pendingRequests += 1;
+  state.globals.hy.loading = true;
+  setErrors(state, []);
+
+  try {
+    void consumeStream(finalUrl, init, target, state, gate).catch((error) => {
+      recordError(state, error, finalUrl, target.method);
+      gate.resolve();
+    });
+    await gate.promise;
+    emitLog(state, {
+      type: "request",
+      message: `stream:complete(${requestId})`,
+      detail: { url: finalUrl, method: target.method },
+      timestamp: Date.now()
+    });
+    cleanupRequestTarget(target);
+  } catch (error) {
+    recordError(state, error, finalUrl, target.method);
+  } finally {
+    state.pendingRequests = Math.max(0, state.pendingRequests - 1);
+    state.globals.hy.loading = state.pendingRequests > 0;
+  }
+}
+
+async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
+  const { element, urlTemplate } = target;
+  const scope = buildScopeStack(element, state);
+  const resolvedUrl = interpolateTemplate(urlTemplate, scope, state, {
+    urlEncodeTokens: true
+  });
+  const gate = createStreamGate(target);
+  const mockRule = matchMockRule(resolvedUrl.value, "GET", state.mockRules);
+  if (mockRule) {
+    emitLog(state, {
+      type: "request",
+      message: "sse:mock",
+      detail: { url: resolvedUrl.value, method: "GET", path: mockRule.path },
+      timestamp: Date.now()
+    });
+    if (typeof console !== "undefined") {
+      console.info("[hytde] sse mock", resolvedUrl.value, mockRule.path);
+    }
+    const payload = await fetchMockPayload(mockRule);
+    void emitMockSse(payload, target, state, gate, mockRule).catch((error) => {
+      recordError(state, error, resolvedUrl.value, "GET");
+      gate.resolve();
+    });
+    await gate.promise;
+    return;
+  }
+
+  const eventSource = new EventSource(resolvedUrl.value);
+  state.sseSources.set(target, eventSource);
+  emitLog(state, {
+    type: "request",
+    message: "sse:start",
+    detail: { url: resolvedUrl.value, method: "GET" },
+    timestamp: Date.now()
+  });
+
+  eventSource.addEventListener("message", (event) => {
+    try {
+      const data = JSON.parse((event as MessageEvent).data);
+      const appended = appendStreamPayload(target, data, state);
+      if (appended) {
+        gate.increment();
+      }
+      if (target.store) {
+        if (!state.bootstrapPending) {
+          renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+        }
+      }
+    } catch (error) {
+      recordStreamError(state, "SSE message parse error", resolvedUrl.value, "GET");
+    }
+  });
+
+  eventSource.addEventListener("error", () => {
+    recordStreamError(state, "SSE connection error", resolvedUrl.value, "GET");
+    gate.resolve();
+  });
+
+  await gate.promise;
+}
+
+async function handlePollingRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
+  const { element, urlTemplate } = target;
+  if (!element.isConnected) {
+    return;
+  }
+  const scope = buildScopeStack(element, state);
+  const resolvedUrl = interpolateTemplate(urlTemplate, scope, state, {
+    urlEncodeTokens: true
+  });
+  const { finalUrl, init } = buildRequestInit(target, resolvedUrl.value, state.doc);
+  const intervalMs = Math.max(200, target.pollIntervalMs ?? 1000);
+
+  const tick = async () => {
+    if (!element.isConnected) {
+      return;
+    }
+    await runPollingOnce(finalUrl, init, target, state);
+  };
+
+  await tick();
+  const timer = window.setInterval(() => {
+    void tick();
+  }, intervalMs);
+  state.pollingTimers.set(target, timer);
+}
+
+async function consumeStream(
+  url: string,
+  init: RequestInit,
+  target: ParsedRequestTarget,
+  state: RuntimeState,
+  gate: StreamGate
+): Promise<void> {
+  const mockRule = matchMockRule(url, init.method ?? "GET", state.mockRules);
+  if (mockRule) {
+    emitLog(state, {
+      type: "request",
+      message: "stream:mock",
+      detail: { url, method: init.method ?? "GET", path: mockRule.path },
+      timestamp: Date.now()
+    });
+    if (typeof console !== "undefined") {
+      console.info("[hytde] stream mock", url, mockRule.path);
+    }
+    const payload = await fetchMockPayload(mockRule);
+    await emitMockStream(payload, target, state, gate, mockRule);
+    return;
+  }
+
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    throw new Error(`Stream request failed: ${response.status}`);
+  }
+
+  if (!response.body) {
+    const payload = await safeJson(response);
+    appendStreamPayload(target, payload, state);
+    gate.increment();
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const parsed = parseJsonLines(buffer);
+    buffer = parsed.rest;
+    for (const item of parsed.items) {
+      const appended = appendStreamPayload(target, item, state);
+      if (appended) {
+        gate.increment();
+      }
+      if (target.store) {
+        if (!state.bootstrapPending) {
+          renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+        }
+      }
+    }
+  }
+
+  buffer += decoder.decode();
+  const remaining = buffer.trim();
+  if (remaining) {
+    try {
+      const item = JSON.parse(remaining);
+      const appended = appendStreamPayload(target, item, state);
+      if (appended) {
+        gate.increment();
+      }
+      if (target.store && !state.bootstrapPending) {
+        renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+      }
+    } catch (error) {
+      throw new Error("Stream chunk parsing failed.");
+    }
+  }
+
+  gate.resolve();
+}
+
+async function fetchMockPayload(rule: MockRule): Promise<unknown> {
+  const response = await fetch(rule.path, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`Mock fetch failed: ${response.status}`);
+  }
+  return safeJson(response);
+}
+
+async function emitMockStream(
+  payload: unknown,
+  target: ParsedRequestTarget,
+  state: RuntimeState,
+  gate: StreamGate,
+  rule: MockRule
+): Promise<void> {
+  const delay = getMockDelay(rule);
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      await new Promise((resolve) => setTimeout(resolve, delay()));
+      const appended = appendStreamPayload(target, item, state);
+      if (appended) {
+        gate.increment();
+      }
+      if (target.store && !state.bootstrapPending) {
+        renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+      }
+    }
+    return;
+  }
+  appendStreamPayload(target, payload, state);
+  gate.increment();
+  if (target.store) {
+    if (!state.bootstrapPending || gate.ready) {
+      renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+    }
+  }
+}
+
+async function emitMockSse(
+  payload: unknown,
+  target: ParsedRequestTarget,
+  state: RuntimeState,
+  gate: StreamGate,
+  rule: MockRule
+): Promise<void> {
+  const delay = getMockDelay(rule);
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      await new Promise((resolve) => setTimeout(resolve, delay()));
+      const appended = appendStreamPayload(target, item, state);
+      if (appended) {
+        gate.increment();
+      }
+      if (target.store && !state.bootstrapPending) {
+        renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+      }
+    }
+    gate.resolve();
+    return;
+  }
+  appendStreamPayload(target, payload, state);
+  gate.increment();
+    if (target.store && !state.bootstrapPending) {
+      renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+    }
+  gate.resolve();
+}
+
+function parseJsonLines(buffer: string): { items: unknown[]; rest: string } {
+  const items: unknown[] = [];
+  let rest = buffer;
+  while (true) {
+    const newline = rest.indexOf("\n");
+    if (newline === -1) {
+      break;
+    }
+    const line = rest.slice(0, newline).trim();
+    rest = rest.slice(newline + 1);
+    if (!line) {
+      continue;
+    }
+    try {
+      items.push(JSON.parse(line));
+    } catch (error) {
+      rest = `${line}\n${rest}`;
+      break;
+    }
+  }
+  return { items, rest };
+}
+
+function appendStreamPayload(target: ParsedRequestTarget, payload: unknown, state: RuntimeState): boolean {
+  const unwrap = target.unwrap ? resolvePath(payload, parseSelectorTokens(target.unwrap)) : payload;
+  const store = target.store;
+  if (!store) {
+    return false;
+  }
+  if (Array.isArray(unwrap)) {
+    let appended = false;
+    for (const item of unwrap) {
+      appended = appendStoreItem(store, item, state, target.streamKey) || appended;
+    }
+    return appended;
+  }
+  return appendStoreItem(store, unwrap, state, target.streamKey);
+}
+
+function appendStoreItem(store: string, item: unknown, state: RuntimeState, keySelector: string | null): boolean {
+  if (keySelector) {
+    const key = resolveStreamKey(item, keySelector);
+    if (key != null) {
+      const cache = getStreamKeyCache(store, state, keySelector);
+      if (cache.has(key)) {
+        return false;
+      }
+      cache.add(key);
+    }
+  }
+  const existing = state.globals.hyState[store];
+  const next = Array.isArray(existing) ? [...existing, item] : [item];
+  state.globals.hyState[store] = next;
+  return true;
+}
+
+function getMockDelay(rule: MockRule): () => number {
+  const delay = rule.delayMs ?? { min: 200, max: 200 };
+  return () => delay.min + Math.random() * (delay.max - delay.min);
+}
+
+async function runPollingOnce(
+  url: string,
+  init: RequestInit,
+  target: ParsedRequestTarget,
+  state: RuntimeState
+): Promise<void> {
+  const mockRule = matchMockRule(url, init.method ?? "GET", state.mockRules);
+  if (mockRule) {
+    emitLog(state, {
+      type: "request",
+      message: "polling:mock",
+      detail: { url, method: init.method ?? "GET", path: mockRule.path },
+      timestamp: Date.now()
+    });
+    const payload = await resolvePollingMockPayload(target, mockRule, state);
+    if (payload === null) {
+      return;
+    }
+    applyPollingStore(target, payload, state);
+    return;
+  }
+
+  try {
+    state.pendingRequests += 1;
+    state.globals.hy.loading = true;
+    const response = await fetch(url, init);
+    if (response.status === 204) {
+      return;
+    }
+    const payload = await safeJson(response);
+    if (payload == null) {
+      return;
+    }
+    applyPollingStore(target, payload, state);
+  } catch (error) {
+    recordError(state, error, url, init.method ?? "GET");
+  } finally {
+    state.pendingRequests = Math.max(0, state.pendingRequests - 1);
+    state.globals.hy.loading = state.pendingRequests > 0;
+  }
+}
+
+function applyPollingStore(target: ParsedRequestTarget, payload: unknown, state: RuntimeState): void {
+  const unwrap = target.unwrap ? resolvePath(payload, parseSelectorTokens(target.unwrap)) : payload;
+  if (unwrap == null) {
+    return;
+  }
+  const store = target.store;
+  if (!store) {
+    return;
+  }
+  state.globals.hyState[store] = unwrap;
+  if (!state.bootstrapPending) {
+    renderDocument(state, [{ type: "store", selector: store }]);
+  }
+}
+
+async function resolvePollingMockPayload(
+  target: ParsedRequestTarget,
+  rule: MockRule,
+  state: RuntimeState
+): Promise<unknown | null> {
+  let queue = state.pollingMockQueues.get(target);
+  if (!queue) {
+    const payload = await fetchMockPayload(rule);
+    const items = Array.isArray(payload) ? payload : [payload];
+    queue = { items, index: 0 };
+    state.pollingMockQueues.set(target, queue);
+  }
+  if (queue.index >= queue.items.length) {
+    return null;
+  }
+  const next = queue.items[queue.index];
+  queue.index += 1;
+  if (next == null) {
+    return null;
+  }
+  return next;
 }
 
 function buildRequestInit(
@@ -1576,6 +2206,20 @@ function recordError(state: RuntimeState, error: unknown, url: string, method: s
   }
 }
 
+function recordStreamError(state: RuntimeState, message: string, url: string, method: string): void {
+  const detail: HyError["detail"] = { url, method };
+  pushError(state, createHyError("request", message, detail));
+  emitLog(state, {
+    type: "error",
+    message,
+    detail,
+    timestamp: Date.now()
+  });
+  if (typeof console !== "undefined") {
+    console.warn("[hytde] stream error", message, detail);
+  }
+}
+
 function emitLog(state: RuntimeState, entry: HyLogEntry): void {
   for (const callback of state.logCallbacks) {
     try {
@@ -1856,11 +2500,17 @@ function emitRenderComplete(state: RuntimeState): void {
   }
 }
 
-function renderDocument(state: RuntimeState): void {
+function renderDocument(
+  state: RuntimeState,
+  changes?: PluginChange[],
+  options?: { appendStores?: string[] }
+): void {
   const doc = state.doc;
   if (!doc.body) {
     return;
   }
+  state.appendStores = options?.appendStores ? new Set(options.appendStores) : null;
+  state.appendLogOnlyNew = Boolean(options?.appendStores && options.appendStores.length > 0);
 
   state.errorDedup.clear();
   emitLog(state, {
@@ -1878,6 +2528,152 @@ function renderDocument(state: RuntimeState): void {
     timestamp: Date.now()
   });
   emitRenderComplete(state);
+  const reason = state.pluginsInitialized ? "update" : "init";
+  runPluginRender(state, reason, changes);
+  state.pluginsInitialized = true;
+  applyHyCloak(state);
+  clearAppendMarkers(state);
+  state.appendStores = null;
+  state.appendLogOnlyNew = false;
+}
+
+function applyHyCloak(state: RuntimeState): void {
+  if (state.cloakApplied) {
+    return;
+  }
+  const elements = state.parsed.cloakElements;
+  if (!elements || elements.length === 0) {
+    state.cloakApplied = true;
+    return;
+  }
+
+  for (const element of elements) {
+    if (!element.isConnected) {
+      continue;
+    }
+    if (!(element instanceof HTMLElement)) {
+      element.removeAttribute("hy-cloak");
+      continue;
+    }
+    element.style.removeProperty("display");
+    if (!element.style.transition) {
+      element.style.transition = "opacity 160ms ease";
+    }
+    element.style.opacity = "0";
+    element.removeAttribute("hy-cloak");
+    requestAnimationFrame(() => {
+      element.style.opacity = "1";
+    });
+  }
+
+  state.cloakApplied = true;
+}
+
+const APPEND_MARK_ATTR = "data-hy-append";
+
+function clearAppendMarkers(state: RuntimeState): void {
+  if (!state.appendLogOnlyNew) {
+    return;
+  }
+  const elements = Array.from(state.doc.querySelectorAll(`[${APPEND_MARK_ATTR}]`));
+  for (const element of elements) {
+    element.removeAttribute(APPEND_MARK_ATTR);
+  }
+}
+
+function getStreamKeyCache(store: string, state: RuntimeState, keySelector: string): Set<string> {
+  const existing = state.streamKeyCache.get(store);
+  if (existing) {
+    return existing;
+  }
+  const cache = new Set<string>();
+  const current = state.globals.hyState[store];
+  if (Array.isArray(current)) {
+    for (const item of current) {
+      const key = resolveStreamKey(item, keySelector);
+      if (key != null) {
+        cache.add(key);
+      }
+    }
+  }
+  state.streamKeyCache.set(store, cache);
+  return cache;
+}
+
+function resolveStreamKey(item: unknown, keySelector: string): string | null {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const tokens = parseSelectorTokens(keySelector);
+  const value = resolvePath(item, tokens);
+  if (value == null) {
+    return null;
+  }
+  return String(value);
+}
+
+type StreamGate = {
+  promise: Promise<void>;
+  ready: boolean;
+  increment: () => void;
+  resolve: () => void;
+};
+
+function createStreamGate(target: ParsedRequestTarget): StreamGate {
+  const required = target.streamInitial;
+  const timeoutMs = target.streamTimeoutMs;
+  if (!required || required <= 0) {
+    return {
+      promise: Promise.resolve(),
+      ready: true,
+      increment: () => {
+        return;
+      },
+      resolve: () => {
+        return;
+      }
+    };
+  }
+
+  let current = 0;
+  let resolveFn: () => void = () => {
+    return;
+  };
+  const promise = new Promise<void>((resolve) => {
+    resolveFn = resolve;
+  });
+  let timer: number | null = null;
+  if (timeoutMs && timeoutMs > 0) {
+    timer = window.setTimeout(() => {
+      resolveFn();
+    }, timeoutMs);
+  }
+
+  const gate: StreamGate = {
+    promise,
+    ready: false,
+    increment: () => {
+      current += 1;
+      if (current >= required && !gate.ready) {
+        gate.ready = true;
+        if (timer != null) {
+          window.clearTimeout(timer);
+        }
+        resolveFn();
+      }
+    },
+    resolve: () => {
+      if (!gate.ready) {
+        gate.ready = true;
+        if (timer != null) {
+          window.clearTimeout(timer);
+        }
+        resolveFn();
+      }
+    }
+  };
+
+  return gate;
 }
 
 function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, scope: ScopeStack): void {
@@ -1885,18 +2681,22 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
     return;
   }
   const items = evaluateSelector(template.selector, scope, state.globals);
+  const appendMode = state.appendStores?.has(template.selector) ?? false;
+  const appendCount = Array.isArray(items) ? Math.max(0, items.length - template.rendered.length) : 0;
+  const logValue = appendMode ? undefined : items;
   emitLog(state, {
     type: "render",
     message: "for:before",
-    detail: { selector: template.selector, value: items },
+    detail: appendMode
+      ? { selector: template.selector, appended: appendCount }
+      : { selector: template.selector, value: logValue },
     timestamp: Date.now()
   });
-  for (const node of template.rendered) {
-    node.parentNode?.removeChild(node);
-  }
-  template.rendered = [];
-
   if (!Array.isArray(items)) {
+    for (const node of template.rendered) {
+      node.parentNode?.removeChild(node);
+    }
+    template.rendered = [];
     emitLog(state, {
       type: "render",
       message: "for:after",
@@ -1905,6 +2705,34 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
     });
     return;
   }
+
+  if (appendMode && items.length >= template.rendered.length) {
+    let insertAfter: Node = template.rendered[template.rendered.length - 1] ?? template.marker;
+    for (let index = template.rendered.length; index < items.length; index += 1) {
+      const item = items[index];
+      const clone = template.template.cloneNode(true) as Element;
+      clone.setAttribute(APPEND_MARK_ATTR, "true");
+      const nextScope = [...scope, { [template.varName]: item }];
+      const parsedClone = state.parser.parseSubtree(clone);
+      renderParsedSubtree(parsedClone, state, nextScope);
+
+      template.marker.parentNode?.insertBefore(clone, insertAfter.nextSibling);
+      template.rendered.push(clone);
+      insertAfter = clone;
+    }
+    emitLog(state, {
+      type: "render",
+      message: "for:append",
+      detail: { selector: template.selector, rendered: template.rendered.length },
+      timestamp: Date.now()
+    });
+    return;
+  }
+
+  for (const node of template.rendered) {
+    node.parentNode?.removeChild(node);
+  }
+  template.rendered = [];
 
   let insertAfter: Node = template.marker;
   for (const item of items) {
@@ -2001,14 +2829,31 @@ function cleanupRequestTarget(target: ParsedRequestTarget): void {
   element.removeAttribute("hy-put");
   element.removeAttribute("hy-patch");
   element.removeAttribute("hy-delete");
+  element.removeAttribute("hy-get-stream");
+  element.removeAttribute("hy-sse");
+  element.removeAttribute("hy-get-polling");
   element.removeAttribute("hy-store");
   element.removeAttribute("hy-unwrap");
+  element.removeAttribute("hy-stream-initial");
+  element.removeAttribute("hy-stream-timeout");
+  element.removeAttribute("hy-stream-key");
+  element.removeAttribute("stream-initial");
+  element.removeAttribute("stream-timeout");
+  element.removeAttribute("stream-key");
+  element.removeAttribute("interval");
 }
 
 
 function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: ScopeStack): void {
   for (const binding of parsed.textBindings) {
     const value = evaluateExpression(binding.expression, scope, state);
+    if (state.appendLogOnlyNew) {
+      const inAppend = binding.element.closest(`[${APPEND_MARK_ATTR}]`);
+      if (!inAppend) {
+        binding.element.textContent = value == null ? "" : String(value);
+        continue;
+      }
+    }
     binding.element.textContent = value == null ? "" : String(value);
     emitLog(state, {
       type: "render",
@@ -2338,6 +3183,10 @@ function evaluateSelector(selector: string, scope: ScopeStack, globals: RuntimeG
     if (typeof token === "number") {
       current = (current as unknown[])[token];
     } else {
+      if (token === "last" && Array.isArray(current)) {
+        current = current.length > 0 ? current[current.length - 1] : null;
+        continue;
+      }
       current = (current as Record<string, unknown>)[token];
     }
   }
@@ -2455,6 +3304,10 @@ function resolvePath(value: unknown, tokens: Array<string | number>): unknown {
     if (typeof token === "number") {
       current = (current as unknown[])[token];
     } else {
+      if (token === "last" && Array.isArray(current)) {
+        current = current.length > 0 ? current[current.length - 1] : null;
+        continue;
+      }
       current = (current as Record<string, unknown>)[token];
     }
   }

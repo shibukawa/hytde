@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HyTDE Standalone - Production Manual</title>
+    <title>HyTDE Standalone - Production Auto</title>
   </head>
   <body>
     <main>
-      <h1>HyTDE Standalone - Production Manual</h1>
-      <p>Manual init variant. Run <code>window.hyInit()</code> in the console to start.</p>
+      <h1>HyTDE Standalone - Production Auto</h1>
+      <p>Auto init variant. Dummy placeholders should disappear once the runtime starts.</p>
 
       <section>
         <h2>Init Check</h2>
-        <p hy-dummy>Waiting for init (this line should disappear after hyInit()).</p>
+        <p hy-dummy>Waiting for init (this line should disappear).</p>
         <p>Static content remains after init.</p>
       </section>
 
@@ -26,13 +26,6 @@
       </section>
     </main>
 
-    <script type="module" src="../../src/entry.production-manual.ts"></script>
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        if (typeof window.hyInit === "function") {
-          window.hyInit();
-        }
-      });
-    </script>
+    <script type="module" src="./index.ts"></script>
   </body>
 </html>

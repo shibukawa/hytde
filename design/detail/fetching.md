@@ -123,6 +123,7 @@ Content keys:
 - `pattern`: a URL pattern using `[param]` path segments (same style as `design/routing.md`).
 - `path`: a JSON file path to load as the response payload. Resolved relative to the current template HTML location.
 - `method` (optional): defaults to `GET`.
+- `delay` (optional): delay in ms (or range `min-max`) for mock delivery. For streaming mocks, this delay is applied per item.
 
 Notes:
 - Multiple `<meta name="hy-mock" ...>` tags may be declared; they are evaluated in document order.
@@ -136,12 +137,45 @@ Parsing:
 
 ### 2.3 Matching and response
 
-When `hy-mode=mock` and a HyTDE request is about to be issued (`hy-get`, `hy-post`, `hy-put`, `hy-patch`, `hy-delete`):
+When `hy-mode=mock` and a HyTDE request is about to be issued (`hy-get`, `hy-post`, `hy-put`, `hy-patch`, `hy-delete`, `hy-get-stream`, `hy-sse`, `hy-get-polling`):
 1. HyTDE evaluates mock rules in document order.
 2. If `method` matches and `pattern` matches the request URL pathname, HyTDE loads and parses the JSON from `path`.
 3. The parsed JSON is used as if it were the server response payload for that request.
 
 If no rule matches, HyTDE performs a real network fetch as usual.
+
+### 2.4 Streaming mocks (hy-get-stream / hy-sse)
+
+For streaming directives, mock payloads are treated as arrays where each element is delivered one-by-one.
+
+```html
+<meta name="hy-mock" content="pattern=/api/orders/stream path=/mocks/orders.json method=GET delay=500" />
+<meta name="hy-mock" content="pattern=/api/summary path=/mocks/summary.json method=GET delay=500" />
+```
+
+Behavior:
+- If the mock JSON is an array, each element is emitted sequentially.
+- `delay` controls the interval between items (default 200ms if not set).
+- This applies to both `hy-get-stream` and `hy-sse` in mock mode.
+
+### 2.5 Tag form for stream / SSE / polling
+
+Streaming and SSE use tag form (like `<hy-get>`). Options remove the `hy-` prefix.
+
+```html
+<hy-get-stream src="/api/orders/stream" store="orders" stream-initial="2" stream-timeout="1200" stream-key="id"></hy-get-stream>
+<hy-sse src="/api/summary" store="summary" stream-initial="1" stream-timeout="1000" stream-key="status"></hy-sse>
+```
+
+Polling:
+```html
+<hy-get-polling src="/api/summary" store="summary" interval="1000"></hy-get-polling>
+```
+
+### 2.6 Polling mock behavior
+- Mock payloads for polling are arrays.
+- Each interval consumes the next element.
+- `null` values are treated as "no content" (no store update).
 
 ### 2.4 Sharing across files/pages
 

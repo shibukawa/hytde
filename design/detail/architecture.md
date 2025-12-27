@@ -102,6 +102,56 @@ Notes:
 - v1 can treat “startup `hy-get` elements” as “fire on initial load”.
 - forms only send requests on submit/auto-submit; they are not part of the “initial request plan” unless explicitly triggered (e.g. `hy-history="sync-..."` auto-submit behavior).
 
+## 5.1 Runtime workflow (requests, gating, render)
+
+High-level workflow (browser runtime):
+1. Parse document and collect directives (including stream/SSE/polling tags).
+2. Run startup requests:
+   - `hy-get` / `hy-post` / ... (one-shot)
+   - `hy-get-stream` (gated by `stream-initial` / `stream-timeout`)
+   - `hy-sse` (gated by `stream-initial` / `stream-timeout`)
+   - `hy-get-polling` (first tick)
+3. When all startup requests and gates are satisfied, perform the first render:
+   - `hy-cloak` is cleared and faded in after first render.
+4. Subsequent updates:
+   - `hy-get-polling` replaces store on each tick (if valid JSON).
+   - `hy-get-stream` / `hy-sse` append items and render only newly appended rows.
+
+Notes:
+- Stream/SSE are treated as “gated startup” for first render; they are not awaited for completion.
+- Initial render happens after:
+  - all one-shot startup requests complete
+  - polling has completed its first tick
+  - stream/SSE gates pass (count or timeout)
+
+### Mermaid (runtime flow)
+
+```mermaid
+flowchart TD
+  subgraph SSR[SSR target: parse to first render]
+    subgraph VITE[Vite plugin optimization]
+      A[Parse Document] --> B[Collect directives]
+    end
+    B --> C[Startup requests]
+    C --> C1[One-shot fetches]
+    C --> C2[Stream/SSE gates]
+    C --> C3[Polling first tick]
+    C1 --> D[Update hyState]
+    C2 --> D
+    C3 --> D
+    D --> E[First render]
+    E --> F[Clear hy-cloak + fade in]
+  end
+  E --> G[Attach ongoing updates]
+  G --> W[Wait events]
+  W --> H[Polling tick -> replace store]
+  H --> H2[Diff render - replace targets]
+  H2 --> W
+  W --> I[Stream/SSE -> append to store]
+  I --> I2[Diff render - append new rows]
+  I2 --> W
+```
+
 ## 6. Forms and navigation
 
 Baseline:

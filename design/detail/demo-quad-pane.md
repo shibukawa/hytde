@@ -21,6 +21,9 @@ Standardize the HyTDE demo UI so source, transformed HTML, rendered output, and 
 - Static `<pre>` blocks; no live editor.
 - HTML and JSON are provided explicitly for clarity and repeatability.
 - Source panes are syntax-highlighted, with HyTDE tags/attributes visually distinct.
+- Tabs use `data-tab` on buttons and `data-tab-panel` on panes.
+- When multiple mock files exist, provide separate JSON tabs.
+- Optional: use `data-json-source="/mocks/..."` to fetch mock JSON for display instead of hardcoding.
 
 ## Transformed HTML Pane
 - Updated after every render pass.

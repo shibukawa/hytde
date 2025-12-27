@@ -4,8 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="hy-mode" content="mock" />
-    <meta name="hy-mock" content="pattern=/api/users/[userId] path=/mocks/user.json" />
-    <title>⭐️HyTDE Template Import</title>
+    <meta name="hy-mock" content="pattern=/api/orders/stream path=/mocks/stream-orders.json method=GET delay=800" />
+    <meta name="hy-mock" content="pattern=/api/summary path=/mocks/stream-summary.json method=GET delay=800" />
+    <title>⭐️HyTDE Stream Sample</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -36,12 +37,12 @@
       <header class="mb-4 flex flex-col gap-2">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 class="text-3xl font-semibold">⭐️HyTDE Template Import</h1>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Stream Sample</h1>
             <p class="text-sm opacity-70">
-              Quad-pane view for source, transformed HTML, rendered output, and logs.
+              Quad-pane view for stream fetch, SSE updates, and runtime logs.
             </p>
           </div>
-          <div class="badge badge-outline">MVP Runtime</div>
+          <div class="badge badge-outline">Stream Extensions</div>
         </div>
       </header>
 
@@ -52,8 +53,8 @@
               <h2 class="card-title text-lg">Source</h2>
               <div role="tablist" class="tabs tabs-boxed">
                 <button class="tab tab-active" data-tab="html" type="button">HTML</button>
-                <button class="tab" data-tab="json" type="button">JSON (/api/users/100)</button>
-                <button class="tab" data-tab="component" type="button">components/user-card.html</button>
+                <button class="tab" data-tab="json-orders" type="button">JSON Orders</button>
+                <button class="tab" data-tab="json-summary" type="button">JSON Summary</button>
               </div>
             </div>
             <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
@@ -85,17 +86,27 @@
                 >Loading source...</pre>
               </div>
             </div>
-            <div id="source-json-blocks" data-tab-panel="json" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
+            <div
+              id="source-json-orders"
+              class="hidden rounded-lg border border-base-300 bg-base-200 p-3"
+              data-tab-panel="json-orders"
+            >
               <pre
-                id="source-json"
+                id="source-json-orders-content"
                 class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                data-json-source="/mocks/stream-orders.json"
               >Loading JSON...</pre>
             </div>
-            <div id="source-component-blocks" data-tab-panel="component" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
+            <div
+              id="source-json-summary"
+              class="hidden rounded-lg border border-base-300 bg-base-200 p-3"
+              data-tab-panel="json-summary"
+            >
               <pre
-                id="source-component"
+                id="source-json-summary-content"
                 class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
-              >Loading component...</pre>
+                data-json-source="/mocks/stream-summary.json"
+              >Loading JSON...</pre>
             </div>
           </div>
         </article>
@@ -116,12 +127,56 @@
         <article class="card bg-base-100 shadow">
           <div class="card-body gap-3">
             <h2 class="card-title text-lg">Rendered Output</h2>
-            <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
-              <section class="space-y-2" hy-get="/api/users/100" hy-store="current">
-                <p class="text-xs uppercase tracking-wide text-base-content/60">Host content</p>
-                <p class="text-sm">This block is rendered by the host template.</p>
-                <hy-import src="/components/user-card.html"></hy-import>
-                <p class="text-sm">Imported content above should blend into this layout.</p>
+            <div
+              id="render-output"
+              class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm"
+            >
+              <section class="space-y-6">
+                <div
+                  class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4"
+                  hy-store="orders"
+                >
+                  <hy-get-stream
+                    src="/api/orders/stream"
+                    store="orders"
+                    stream-initial="2"
+                    stream-timeout="1200"
+                    stream-key="id"
+                  ></hy-get-stream>
+                  <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-lg font-semibold">Streaming Orders</h3>
+                    <span class="badge badge-outline">hy-get-stream</span>
+                  </div>
+                  <p class="text-xs opacity-70">Waits for 2 items or 1.2s, then appends.</p>
+                  <ul class="space-y-2">
+                    <li
+                      class="flex items-center justify-between rounded-lg border border-base-200 bg-base-200/50 px-3 py-2"
+                      hy-for="order of orders"
+                    >
+                      <span class="font-mono text-xs" hy="order.id">#id</span>
+                      <span class="badge badge-ghost" hy="order.status">status</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="space-y-2 rounded-lg border border-base-200 bg-base-100 p-4" hy-store="summary">
+                  <hy-sse
+                    src="/api/summary"
+                    store="summary"
+                    stream-initial="1"
+                    stream-timeout="1000"
+                    stream-key="status"
+                  ></hy-sse>
+                  <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-lg font-semibold">SSE Summary</h3>
+                    <span class="badge badge-outline">hy-sse</span>
+                  </div>
+                  <p class="text-xs opacity-70">Uses summary.last for the latest message.</p>
+                  <p class="text-lg font-semibold">
+                    <span>Current:</span>
+                    <span class="ml-2" hy="summary.last.status">unknown</span>
+                  </p>
+                </div>
               </section>
             </div>
           </div>
@@ -143,69 +198,71 @@
     <script type="module">
       import { init } from "@hytde/standalone";
       // start-script
-      init();
+      console.log("[demo] stream sample init");
       // end-script
+      init();
     </script>
     <template id="source-inline-script">
       // start-script
-      init();
+      console.log("[demo] stream sample init");
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
-<section class="space-y-2" hy-get="/api/users/100" hy-store="current">
-  <p class="text-xs uppercase tracking-wide text-base-content/60">Host content</p>
-  <p class="text-sm">This block is rendered by the host template.</p>
-  <hy-import src="/components/user-card.html"></hy-import>
-  <p class="text-sm">Imported content above should blend into this layout.</p>
+<section class="space-y-6">
+  <div
+    class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4"
+    hy-store="orders"
+  >
+    <hy-get-stream
+      src="/api/orders/stream"
+      store="orders"
+      stream-initial="2"
+      stream-timeout="1200"
+      stream-key="id"
+    ></hy-get-stream>
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="text-lg font-semibold">Streaming Orders</h3>
+      <span class="badge badge-outline">hy-get-stream</span>
+    </div>
+    <p class="text-xs opacity-70">Waits for 2 items or 1.2s, then appends.</p>
+    <ul class="space-y-2">
+      <li
+        class="flex items-center justify-between rounded-lg border border-base-200 bg-base-200/50 px-3 py-2"
+        hy-for="order of orders"
+      >
+        <span class="font-mono text-xs" hy="order.id">#id</span>
+        <span class="badge badge-ghost" hy="order.status">status</span>
+      </li>
+    </ul>
+  </div>
+
+  <div
+    class="space-y-2 rounded-lg border border-base-200 bg-base-100 p-4"
+    hy-store="summary"
+  >
+    <hy-sse
+      src="/api/summary"
+      store="summary"
+      stream-initial="1"
+      stream-timeout="1000"
+      stream-key="status"
+    ></hy-sse>
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="text-lg font-semibold">SSE Summary</h3>
+      <span class="badge badge-outline">hy-sse</span>
+    </div>
+    <p class="text-xs opacity-70">Uses summary.last for the latest message.</p>
+    <p class="text-lg font-semibold">
+      <span>Current:</span>
+      <span class="ml-2" hy="summary.last.status">unknown</span>
+    </p>
+  </div>
 </section>
     </script>
     <script type="text/plain" id="source-json-template" data-source="mock"></script>
     <template id="source-cdn-template">
       &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
     </template>
-    <script type="text/plain" id="source-component-template">
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>User Card</title>
-    <style hy-export>
-      .demo-user-card {
-        border-radius: 12px;
-        border: 1px solid hsl(24 85% 70%);
-        background: hsl(28 95% 96%);
-        padding: 16px;
-        display: grid;
-        gap: 8px;
-        font-family: "Space Grotesk", sans-serif;
-      }
-      .demo-user-card__meta {
-        color: hsl(215 16% 35%);
-        font-size: 0.9rem;
-      }
-      .demo-user-card__badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border-radius: 999px;
-        background: hsl(200 70% 92%);
-        color: hsl(200 40% 28%);
-        font-size: 0.75rem;
-        font-weight: 600;
-        padding: 2px 10px;
-        width: fit-content;
-      }
-    </style>
-  </head>
-  <body hy-cloak style="display: none;">
-    <article class="demo-user-card" hy-export="card">
-      <div class="demo-user-card__badge">Imported Component</div>
-      <h3 class="text-lg font-semibold" hy="current.user.name">User Name</h3>
-      <p class="demo-user-card__meta" hy="current.user.email">user@example.com</p>
-    </article>
-  </body>
-</html>
-    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

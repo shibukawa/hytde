@@ -12,25 +12,25 @@ const rootDir = __dirname;
 const variants: Variant[] = [
   {
     name: "production-auto",
-    htmlEntry: "tests/production-auto/index.html",
+    htmlEntry: "entries/production-auto/index.html",
     outDir: "dist/production-auto",
     debug: false
   },
   {
     name: "debug-auto",
-    htmlEntry: "tests/debug-auto/index.html",
+    htmlEntry: "entries/debug-auto/index.html",
     outDir: "dist/debug-auto",
     debug: true
   },
   {
     name: "production-manual",
-    htmlEntry: "tests/production-manual/index.html",
+    htmlEntry: "entries/production-manual/index.html",
     outDir: "dist/production-manual",
     debug: false
   },
   {
     name: "debug-manual",
-    htmlEntry: "tests/debug-manual/index.html",
+    htmlEntry: "entries/debug-manual/index.html",
     outDir: "dist/debug-manual",
     debug: true
   }
@@ -47,7 +47,7 @@ function resolveVariant(): Variant {
 
 export default defineConfig(() => {
   const variant = resolveVariant();
-  const variantRoot = resolve(rootDir, `tests/${variant.name}`);
+  const variantRoot = resolve(rootDir, `entries/${variant.name}`);
   return {
     root: variantRoot,
     base: "./",

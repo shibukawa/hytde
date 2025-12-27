@@ -31,7 +31,7 @@
       };
     </script>
   </head>
-  <body class="min-h-screen bg-base-200 text-base-content font-display">
+  <body hy-cloak style="display: none;" class="min-h-screen bg-base-200 text-base-content font-display">
     <main class="min-h-screen p-4 md:p-6">
       <header class="mb-4 flex flex-col gap-2">
         <div class="flex flex-wrap items-center justify-between gap-2">
@@ -53,7 +53,7 @@
                 <button class="tab" data-tab="json" type="button">JSON (Mocks)</button>
               </div>
             </div>
-            <div id="source-html-blocks" class="space-y-3">
+            <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
               <div class="rounded-lg border border-base-300 bg-base-200 p-3">
                 <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
                   CDN Import
@@ -82,7 +82,7 @@
                 >Loading source...</pre>
               </div>
             </div>
-            <div id="source-json-blocks" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
+            <div id="source-json-blocks" data-tab-panel="json" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
               <pre
                 id="source-json"
                 class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
@@ -232,24 +232,9 @@
   </section>
 </section>
     </script>
-    <script type="text/plain" id="source-json-template">
-{
-  "GET /api/users/search": {
-    "data": {
-      "meta": {
-        "generatedAt": "2025-12-01T10:30:00Z"
-      },
-      "users": [
-        { "id": 100, "name": "Alice" },
-        { "id": 101, "name": "Bob" },
-        { "id": 102, "name": "Carol" }
-      ]
-    }
-  }
-}
-    </script>
+    <script type="text/plain" id="source-json-template" data-source="mock"></script>
     <template id="source-cdn-template">
-<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/hytde-standalone.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"></script>
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

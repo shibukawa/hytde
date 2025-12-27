@@ -1,0 +1,12 @@
+[
+  { "status": "healthy(1)" },
+  { "status": "degraded(2)" },
+  { "status": "healthy(3)" },
+  { "status": "recovering(4)" },
+  { "status": "healthy(5)" },
+  { "status": "degraded(6)" },
+  { "status": "healthy(7)" },
+  { "status": "recovering(8)" },
+  { "status": "healthy(9)" },
+  { "status": "degraded(10)" }
+]

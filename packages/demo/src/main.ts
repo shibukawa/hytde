@@ -1,3 +1,5 @@
+console.log("[demo] main.ts loaded");
+
 const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-tab]"));
 const sourceHtml = document.querySelector<HTMLElement>("#source-html");
 const sourceHtmlBlocks = document.querySelector<HTMLElement>("#source-html-blocks");
@@ -13,6 +15,18 @@ const logPanel = document.querySelector<HTMLElement>("#runtime-log");
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
 
 const activateTab = (name: string) => {
+  const tabPanels = Array.from(document.querySelectorAll<HTMLElement>("[data-tab-panel]"));
+  if (tabPanels.length > 0) {
+    for (const panel of tabPanels) {
+      panel.classList.toggle("hidden", panel.dataset.tabPanel !== name);
+    }
+    for (const button of tabButtons) {
+      const active = button.dataset.tab === name;
+      button.classList.toggle("tab-active", active);
+    }
+    return;
+  }
+
   if (!sourceHtmlBlocks || !sourceJsonBlocks) {
     return;
   }
@@ -62,6 +76,10 @@ const appendLog = (entry: {
   }
 };
 
+if (!window.hy) {
+  console.error("[demo] hy runtime not detected yet.");
+}
+
 const readSourceText = (selector: string) => {
   const element = document.querySelector<HTMLElement>(selector);
   if (!element) {
@@ -74,6 +92,7 @@ const readSourceText = (selector: string) => {
 };
 
 const sourceHtmlRaw = readSourceText("#source-html-template").trim();
+const sourceJsonTemplate = document.querySelector<HTMLElement>("#source-json-template");
 const sourceJsonRaw = readSourceText("#source-json-template").trim();
 const sourceComponentRaw = readSourceText("#source-component-template").trim();
 const sourceCdnRaw = readSourceText("#source-cdn-template").trim();
@@ -386,7 +405,11 @@ if (sourceHtml) {
   sourceHtml.innerHTML = highlightHtml(sourceHtmlRaw);
 }
 if (sourceJson) {
-  sourceJson.innerHTML = highlightJson(sourceJsonRaw);
+  if (sourceJsonTemplate?.dataset.source === "mock") {
+    void loadMockJsonInto(sourceJson);
+  } else {
+    sourceJson.innerHTML = highlightJson(sourceJsonRaw);
+  }
 }
 if (sourceComponent) {
   sourceComponent.innerHTML = highlightHtml(sourceComponentRaw);
@@ -407,6 +430,8 @@ if (sourceCdn) {
   sourceCdn.innerHTML = escapeHtml(sourceCdnRaw);
 }
 
+void loadJsonSources();
+
 registerRuntimeHooks();
 const runtimeGlobal = globalThis as typeof globalThis & {
   hy?: { onRenderComplete?: (cb: () => void) => void; onLog?: (cb: (entry: unknown) => void) => void };
@@ -426,3 +451,93 @@ appendLog({
 });
 
 dumpTransformed();
+
+async function loadMockJsonInto(target: HTMLElement): Promise<void> {
+  const mockMetas = Array.from(document.querySelectorAll<HTMLMetaElement>('meta[name="hy-mock"]'));
+  if (mockMetas.length === 0) {
+    target.innerHTML = highlightJson("{}");
+    return;
+  }
+
+  const entries = mockMetas.map((meta) => parseMockMeta(meta.content ?? ""));
+  const results = await Promise.all(
+    entries.map(async (entry, index) => {
+      if (!entry?.path) {
+        return { key: `mock-${index}`, value: { error: "missing path" } };
+      }
+      try {
+        const response = await fetch(entry.path);
+        if (!response.ok) {
+          return { key: entry.path, value: { error: `status ${response.status}` } };
+        }
+        const payload = await response.json();
+        return { key: entry.path, value: payload };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { key: entry.path, value: { error: message } };
+      }
+    })
+  );
+
+  const container = target.parentElement ?? target;
+  container.innerHTML = "";
+  for (const result of results) {
+    const block = document.createElement("div");
+    block.className = "space-y-2";
+
+    const label = document.createElement("div");
+    label.className = "text-[11px] font-semibold uppercase tracking-wide text-base-content/60";
+    label.textContent = result.key;
+    block.append(label);
+
+    const pre = document.createElement("pre");
+    pre.className = target.className;
+    pre.innerHTML = highlightJson(JSON.stringify(result.value, null, 2));
+    block.append(pre);
+
+    container.append(block);
+  }
+}
+
+function parseMockMeta(content: string): { path: string | null } | null {
+  const tokens = content.split(/\s+/).filter(Boolean);
+  let path: string | null = null;
+  for (const token of tokens) {
+    const [key, rawValue] = token.includes("=") ? token.split("=") : token.split(":");
+    if (!key || rawValue == null) {
+      continue;
+    }
+    if (key === "path") {
+      path = rawValue.trim();
+    }
+  }
+  return { path };
+}
+
+async function loadJsonSources(): Promise<void> {
+  const targets = Array.from(document.querySelectorAll<HTMLElement>("[data-json-source]"));
+  if (targets.length === 0) {
+    return;
+  }
+
+  await Promise.all(
+    targets.map(async (target) => {
+      const source = target.dataset.jsonSource;
+      if (!source) {
+        return;
+      }
+      try {
+        const response = await fetch(source);
+        if (!response.ok) {
+          target.innerHTML = highlightJson(JSON.stringify({ error: `status ${response.status}` }, null, 2));
+          return;
+        }
+        const payload = await response.json();
+        target.innerHTML = highlightJson(JSON.stringify(payload, null, 2));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        target.innerHTML = highlightJson(JSON.stringify({ error: message }, null, 2));
+      }
+    })
+  );
+}
