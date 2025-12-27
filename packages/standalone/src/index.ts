@@ -1,4 +1,4 @@
-import { createRuntime } from "@hytde/runtime";
+import { createRuntime, initHyPathParams } from "@hytde/runtime";
 import {
   parseDocument,
   parseHtml,
@@ -33,6 +33,7 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     return;
   }
 
+  initHyPathParams(doc);
   const runtime = createRuntime({ parseDocument, parseSubtree });
   const importLogs: HyLogEntry[] = [];
   const errors = await resolveImports(doc, {

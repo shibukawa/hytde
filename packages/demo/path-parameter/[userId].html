@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-path" content="/path-parameter/[userId].html" />
+    <meta name="hy-mock" content="pattern=/api/users/100.json path=/mocks/users/100.json" />
+    <meta name="hy-mock" content="pattern=/api/users/101.json path=/mocks/users/101.json" />
+    <meta name="hy-mock" content="pattern=/api/users/102.json path=/mocks/users/102.json" />
+    <meta name="hy-mock" content="pattern=/api/users/100/detail.json path=/mocks/users/100-detail.json" />
+    <meta name="hy-mock" content="pattern=/api/users/101/detail.json path=/mocks/users/101-detail.json" />
+    <meta name="hy-mock" content="pattern=/api/users/102/detail.json path=/mocks/users/102-detail.json" />
+    <title>⭐️HyTDE Path Parameter Detail</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body hy-cloak style="display: none;" class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-4 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 class="text-3xl font-semibold">⭐️Path Parameter Detail</h1>
+            <p class="text-sm opacity-70">Detail page resolved via <code>[userId]</code>.</p>
+          </div>
+          <div class="badge badge-outline">hy-path</div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-2">
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Source</h2>
+              <div role="tablist" class="tabs tabs-boxed">
+                <button class="tab tab-active" data-tab="html" type="button">HTML</button>
+                <button class="tab" data-tab="json-user" type="button">JSON (/api/users/100.json)</button>
+                <button class="tab" data-tab="json-detail" type="button">JSON (/api/users/100/detail.json)</button>
+              </div>
+            </div>
+            <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  CDN Import
+                </div>
+                <pre
+                  id="source-cdn"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading CDN snippet...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  Inline Script
+                </div>
+                <pre
+                  id="source-script"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading script...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  HTML
+                </div>
+                <pre
+                  id="source-html"
+                  class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading source...</pre>
+              </div>
+            </div>
+            <div
+              id="source-json-user"
+              class="hidden rounded-lg border border-base-300 bg-base-200 p-3"
+              data-tab-panel="json-user"
+            >
+              <pre
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                data-json-source="/mocks/users/100.json"
+              >Loading JSON...</pre>
+            </div>
+            <div
+              id="source-json-detail"
+              class="hidden rounded-lg border border-base-300 bg-base-200 p-3"
+              data-tab-panel="json-detail"
+            >
+              <pre
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                data-json-source="/mocks/users/100-detail.json"
+              >Loading JSON...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Transformed HTML</h2>
+            <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="transformed-html"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Waiting for first render...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Rendered Output</h2>
+            <div
+              id="render-output"
+              class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm"
+            >
+              <section class="space-y-6">
+                <div class="space-y-2 rounded-lg border border-base-200 bg-base-100 p-4">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="text-lg font-semibold">Current Params</h3>
+                    <span class="badge badge-outline">hyParams</span>
+                  </div>
+                  <p class="text-sm">
+                    userId:
+                    <span class="font-mono" hy="hyParams.userId">unknown</span>
+                  </p>
+                  <a class="btn btn-sm btn-outline" href="/path-parameter.html">Back to list</a>
+                </div>
+
+                <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+                  <hy-get src="/api/users/[userId].json" store="profile"></hy-get>
+                  <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-lg font-semibold">Profile</h3>
+                    <span class="badge badge-outline">hy-get</span>
+                  </div>
+                  <p class="text-xs opacity-70">Request URL: <code>/api/users/[userId].json</code></p>
+                  <div class="space-y-1 rounded-lg border border-base-200 bg-base-200/60 p-3">
+                    <p class="text-sm">
+                      Name:
+                      <span class="font-semibold" hy="profile.user.name">---</span>
+                    </p>
+                    <p class="text-sm">
+                      Email:
+                      <span class="font-mono" hy="profile.user.email">---</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+                  <hy-get src="/api/users/[userId]/detail.json" store="detail"></hy-get>
+                  <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-lg font-semibold">Detail</h3>
+                    <span class="badge badge-outline">hy-get</span>
+                  </div>
+                  <p class="text-xs opacity-70">Request URL: <code>/api/users/[userId]/detail.json</code></p>
+                  <div class="space-y-1 rounded-lg border border-base-200 bg-base-200/60 p-3">
+                    <p class="text-sm">
+                      Role:
+                      <span class="font-semibold" hy="detail.role">---</span>
+                    </p>
+                    <p class="text-sm">
+                      Status:
+                      <span class="badge badge-ghost" hy="detail.status">---</span>
+                    </p>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Runtime Log</h2>
+            <div
+              id="runtime-log"
+              class="rounded-lg border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed"
+            >
+              <div class="opacity-60">Log entries will appear here.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+      // start-script
+      // end-script
+      init();
+    </script>
+    <template id="source-inline-script">
+      // start-script
+      // end-script
+    </template>
+    <script type="text/plain" id="source-html-template">
+<section class="space-y-6">
+  <div class="space-y-2 rounded-lg border border-base-200 bg-base-100 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-lg font-semibold">Current Params</h3>
+      <span class="badge badge-outline">hyParams</span>
+    </div>
+    <p class="text-sm">
+      userId:
+      <span class="font-mono" hy="hyParams.userId">unknown</span>
+    </p>
+    <a class="btn btn-sm btn-outline" href="/path-parameter.html">Back to list</a>
+  </div>
+
+  <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+    <hy-get src="/api/users/[userId].json" store="profile"></hy-get>
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="text-lg font-semibold">Profile</h3>
+      <span class="badge badge-outline">hy-get</span>
+    </div>
+    <p class="text-xs opacity-70">Request URL: <code>/api/users/[userId].json</code></p>
+    <div class="space-y-1 rounded-lg border border-base-200 bg-base-200/60 p-3">
+      <p class="text-sm">
+        Name:
+        <span class="font-semibold" hy="profile.user.name">---</span>
+      </p>
+      <p class="text-sm">
+        Email:
+        <span class="font-mono" hy="profile.user.email">---</span>
+      </p>
+    </div>
+  </div>
+
+  <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+    <hy-get src="/api/users/[userId]/detail.json" store="detail"></hy-get>
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="text-lg font-semibold">Detail</h3>
+      <span class="badge badge-outline">hy-get</span>
+    </div>
+    <p class="text-xs opacity-70">Request URL: <code>/api/users/[userId]/detail.json</code></p>
+    <div class="space-y-1 rounded-lg border border-base-200 bg-base-200/60 p-3">
+      <p class="text-sm">
+        Role:
+        <span class="font-semibold" hy="detail.role">---</span>
+      </p>
+      <p class="text-sm">
+        Status:
+        <span class="badge badge-ghost" hy="detail.status">---</span>
+      </p>
+    </div>
+  </div>
+</section>
+    </script>
+    <script type="text/plain" id="source-json-template"></script>
+    <template id="source-cdn-template">
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
+    </template>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

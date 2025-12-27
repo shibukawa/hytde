@@ -195,6 +195,11 @@ interface RuntimeState {
   logCallbacks: Array<(entry: HyLogEntry) => void>;
   errorUi: ErrorUiState | null;
   errorDedup: Set<string>;
+  pathMeta: HyPathMeta;
+  pathDiagnostics: HyPathDiagnostics | null;
+  pathDiagnosticsEmitted: boolean;
+  missingPathParams: Set<string>;
+  navListenerAttached: boolean;
 }
 
 interface ErrorUiState {
@@ -216,6 +221,22 @@ const runtimeStates = new WeakMap<Document, RuntimeState>();
 const RENDER_CALLBACK_KEY = "__hytdeRenderCallbacks";
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const TRANSFORM_REGISTRY_KEY = "__hytdeTransforms";
+const PATH_DIAGNOSTIC_KEY = "__hytdePathDiagnostics";
+const NAV_FALLBACK_ATTR = "data-hy-hash-fallback";
+
+type HyPathMode = "hash" | "path";
+
+type HyPathMeta = {
+  template: string | null;
+  mode: HyPathMode;
+};
+
+type HyPathDiagnostics = {
+  mode: HyPathMode;
+  hashOverrides: string[];
+  pathMatched: boolean;
+  hashUsed: boolean;
+};
 
 type JsonScalar = string | number | boolean | null;
 type JsonScalarType = "string" | "number" | "boolean" | "null";
@@ -255,10 +276,29 @@ export function createRuntime(parser: ParserAdapter): Runtime {
       const state = getRuntimeState(doc, globals, parsed, parser);
       state.mockRules = parsed.executionMode === "mock" ? parsed.mockRules : [];
       setupPlugins(state);
+      syncHyPathParams(state);
+      emitPathDiagnostics(state);
+      setupNavigationHandlers(state);
 
       void bootstrapRuntime(state);
     }
   };
+}
+
+export function initHyPathParams(doc: Document): void {
+  const view = doc.defaultView;
+  if (!view) {
+    return;
+  }
+  const meta = parseHyPathMeta(doc);
+  const { params, diagnostics } = resolveHyParamsForLocation(view.location, meta);
+  view.hyParams = params;
+  if (!view.hy) {
+    view.hy = { loading: false, errors: [] };
+  }
+  const hy = view.hy as HyGlobals & Record<string, unknown>;
+  hy.pathParams = params;
+  (view as unknown as Record<string, unknown>)[PATH_DIAGNOSTIC_KEY] = diagnostics;
 }
 
 function ensureGlobals(scope: typeof globalThis): RuntimeGlobals {
@@ -288,6 +328,12 @@ function ensureGlobals(scope: typeof globalThis): RuntimeGlobals {
 
   if (!scope.hyParams) {
     scope.hyParams = parseParams(scope.location?.search ?? "", scope.location?.hash ?? "");
+  }
+  if (scope.hy) {
+    const hy = scope.hy as HyGlobals & Record<string, unknown>;
+    if (!hy.pathParams) {
+      hy.pathParams = scope.hyParams;
+    }
   }
 
   return {
@@ -398,7 +444,12 @@ function getRuntimeState(
     renderCallbacks,
     logCallbacks,
     errorUi: null,
-    errorDedup: new Set()
+    errorDedup: new Set(),
+    pathMeta: parseHyPathMeta(doc),
+    pathDiagnostics: null,
+    pathDiagnosticsEmitted: false,
+    missingPathParams: new Set(),
+    navListenerAttached: false
   };
 
   runtimeStates.set(doc, state);
@@ -480,6 +531,192 @@ function disposePlugins(state: RuntimeState): void {
   state.pollingMockQueues.clear();
 }
 
+function parseHyPathMeta(doc: Document): HyPathMeta {
+  const template = parseHyPathTemplate(doc);
+  const modeMetas = Array.from(doc.querySelectorAll("meta[name=\"hy-path-mode\"]"));
+  let mode: HyPathMode = "hash";
+  modeMetas.forEach((meta) => {
+    const content = meta.getAttribute("content") ?? "";
+    const parsed = parseHyPathMode(content);
+    if (parsed) {
+      mode = parsed;
+    }
+  });
+
+  return { template, mode };
+}
+
+function parseHyPathTemplate(doc: Document): string | null {
+  const meta = doc.querySelector("meta[name=\"hy-path\"]");
+  if (!meta) {
+    return null;
+  }
+  const content = meta.getAttribute("content") ?? "";
+  if (!content.trim()) {
+    return null;
+  }
+  const parsed = parseMetaContent(content);
+  const raw = parsed.template ?? content;
+  const template = raw.trim();
+  if (!template) {
+    return null;
+  }
+  if (!isRelativePath(template)) {
+    return null;
+  }
+  return normalizePathPattern(stripQueryHash(template));
+}
+
+function parseHyPathMode(content: string): HyPathMode | null {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed === "hash" || trimmed === "path") {
+    return trimmed;
+  }
+  const parsed = parseMetaContent(trimmed);
+  const mode = parsed.mode?.trim();
+  if (mode === "hash" || mode === "path") {
+    return mode;
+  }
+  return null;
+}
+
+function parseMetaContent(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const parts = content.split(";").map((part) => part.trim()).filter(Boolean);
+  for (const part of parts) {
+    const [rawKey, ...rest] = part.split("=");
+    if (!rawKey || rest.length === 0) {
+      continue;
+    }
+    const key = rawKey.trim();
+    const value = rest.join("=").trim();
+    if (!key) {
+      continue;
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+function stripQueryHash(path: string): string {
+  const hashIndex = path.indexOf("#");
+  const queryIndex = path.indexOf("?");
+  const end = Math.min(
+    hashIndex === -1 ? path.length : hashIndex,
+    queryIndex === -1 ? path.length : queryIndex
+  );
+  return path.slice(0, end);
+}
+
+function normalizePathPattern(path: string): string {
+  if (path === "*") {
+    return "*";
+  }
+  const trimmed = path.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function isRelativePath(path: string): boolean {
+  return !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path);
+}
+
+function resolveHyParamsForLocation(
+  location: Location,
+  meta: HyPathMeta
+): { params: Record<string, string>; diagnostics: HyPathDiagnostics } {
+  const pathname = location.pathname ?? "";
+  const searchParams = parseSearchParams(location.search ?? "");
+  const allowHash = shouldUseHashParams(pathname, meta.template);
+  const hashParams = allowHash ? parseHashParams(location.hash ?? "") : {};
+  let pathParams: Record<string, string> = {};
+  let pathMatched = false;
+  if (meta.template) {
+    const extracted = extractPathParams(meta.template, pathname);
+    pathParams = extracted.params;
+    pathMatched = extracted.matched;
+  }
+  const params: Record<string, string> = {};
+  const hashOverrides: string[] = [];
+  Object.assign(params, pathParams);
+  Object.assign(params, searchParams);
+  for (const [key, value] of Object.entries(hashParams)) {
+    if (Object.prototype.hasOwnProperty.call(params, key) && params[key] !== value) {
+      hashOverrides.push(key);
+    }
+    params[key] = value;
+  }
+
+  const hashUsed = allowHash && Object.keys(hashParams).length > 0;
+
+  return {
+    params,
+    diagnostics: {
+      mode: meta.mode,
+      hashOverrides,
+      pathMatched,
+      hashUsed
+    }
+  };
+}
+
+function shouldUseHashParams(pathname: string, template: string | null): boolean {
+  if (!template) {
+    return true;
+  }
+  return normalizePathPattern(pathname) === normalizePathPattern(template);
+}
+
+function parseSearchParams(search: string): Record<string, string> {
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const result: Record<string, string> = {};
+  params.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+}
+
+function parseHashParams(hash: string): Record<string, string> {
+  const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  const result: Record<string, string> = {};
+  params.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+}
+
+function extractPathParams(
+  template: string,
+  pathname: string
+): { params: Record<string, string>; matched: boolean } {
+  const cleanedTemplate = stripQueryHash(template);
+  const templateParts = normalizePathPattern(cleanedTemplate).split("/").filter((part) => part !== "");
+  const pathParts = normalizePathPattern(pathname).split("/").filter((part) => part !== "");
+  if (templateParts.length !== pathParts.length) {
+    return { params: {}, matched: false };
+  }
+  const params: Record<string, string> = {};
+  for (let index = 0; index < templateParts.length; index += 1) {
+    const part = templateParts[index];
+    const value = pathParts[index];
+    const match = part.match(/^\[([^\]]+)\]$/);
+    if (match) {
+      const key = match[1];
+      params[key] = decodeURIComponent(value);
+      continue;
+    }
+    if (part !== value) {
+      return { params: {}, matched: false };
+    }
+  }
+  return { params, matched: true };
+}
+
 function parseParams(search: string, hash: string): Record<string, string> {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
@@ -493,6 +730,52 @@ function parseParams(search: string, hash: string): Record<string, string> {
   });
 
   return result;
+}
+
+function syncHyPathParams(state: RuntimeState): void {
+  const view = state.doc.defaultView;
+  if (!view) {
+    return;
+  }
+  const { params, diagnostics } = resolveHyParamsForLocation(view.location, state.pathMeta);
+  view.hyParams = params;
+  state.globals.hyParams = params;
+  const hy = state.globals.hy as HyGlobals & Record<string, unknown>;
+  hy.pathParams = params;
+  (view as unknown as Record<string, unknown>)[PATH_DIAGNOSTIC_KEY] = diagnostics;
+  state.pathDiagnostics = diagnostics;
+}
+
+function emitPathDiagnostics(state: RuntimeState): void {
+  if (state.pathDiagnosticsEmitted) {
+    return;
+  }
+  const diagnostics = state.pathDiagnostics;
+  if (!diagnostics) {
+    return;
+  }
+  state.pathDiagnosticsEmitted = true;
+  emitLog(state, {
+    type: "info",
+    message: "path:mode",
+    detail: { mode: diagnostics.mode },
+    timestamp: Date.now()
+  });
+  if (diagnostics.hashUsed) {
+    emitLog(state, {
+      type: "info",
+      message: "path:hash-used",
+      timestamp: Date.now()
+    });
+  }
+  if (diagnostics.hashOverrides.length > 0) {
+    emitLog(state, {
+      type: "info",
+      message: "path:hash-override",
+      detail: { keys: diagnostics.hashOverrides },
+      timestamp: Date.now()
+    });
+  }
 }
 
 function ensureCallbackStore(target: Record<string, unknown>, key: string): unknown[] {
@@ -777,6 +1060,51 @@ function setupHistoryHandlers(state: RuntimeState): void {
     });
     refreshHyParams(state);
     applyHistoryToForms(state, "popstate");
+  });
+}
+
+function setupNavigationHandlers(state: RuntimeState): void {
+  const view = state.doc.defaultView;
+  if (!view || state.navListenerAttached) {
+    return;
+  }
+  state.navListenerAttached = true;
+  state.doc.addEventListener("click", (event) => {
+    if (!(event instanceof MouseEvent)) {
+      return;
+    }
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) {
+      return;
+    }
+    if (state.pathMeta.mode !== "hash") {
+      return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+    if (!anchor) {
+      return;
+    }
+    if (anchor.hasAttribute("download")) {
+      return;
+    }
+    if (anchor.target && anchor.target !== "_self") {
+      return;
+    }
+    const fallback = anchor.getAttribute(NAV_FALLBACK_ATTR);
+    const href = anchor.getAttribute("href");
+    if (!fallback || !href) {
+      return;
+    }
+    const canonicalUrl = resolveNavigationUrl(href, state.doc);
+    const fallbackUrl = resolveNavigationUrl(fallback, state.doc);
+    if (!canonicalUrl || !fallbackUrl) {
+      return;
+    }
+    if (canonicalUrl.origin !== view.location.origin || fallbackUrl.origin !== view.location.origin) {
+      return;
+    }
+    event.preventDefault();
+    void navigateWithHashFallback(canonicalUrl.toString(), fallbackUrl.toString(), view);
   });
 }
 
@@ -1115,9 +1443,7 @@ function refreshHyParams(state: RuntimeState): void {
   if (!view) {
     return;
   }
-  const params = parseParams(view.location.search, view.location.hash);
-  view.hyParams = params;
-  state.globals.hyParams = params;
+  syncHyPathParams(state);
 }
 
 function maybeUpdateHistoryOnSubmit(target: ParsedRequestTarget, state: RuntimeState): void {
@@ -1237,34 +1563,84 @@ function maybeRedirectAfterSubmit(target: ParsedRequestTarget, _payload: unknown
     return;
   }
   const scope = buildScopeStack(target.element, state);
-  const resolved = interpolateTemplate(redirectAttr, scope, state, { urlEncodeTokens: true });
-  const redirectUrl = resolved.value;
-  if (!redirectUrl) {
+  const resolved = resolveUrlTemplate(redirectAttr, scope, state, { urlEncodeTokens: true, context: "nav" });
+  if (!resolved.value) {
     return;
   }
   const view = state.doc.defaultView;
   if (!view) {
     return;
   }
-  let finalUrl: URL;
-  try {
-    finalUrl = new URL(redirectUrl, view.location.href);
-  } catch (error) {
-    recordRedirectError(state, redirectUrl, "Invalid redirect URL.");
+  const canonicalUrl = resolveNavigationUrl(resolved.value, state.doc);
+  if (!canonicalUrl) {
+    recordRedirectError(state, resolved.value, "Invalid redirect URL.");
     return;
   }
-  if (finalUrl.origin !== view.location.origin) {
-    recordRedirectError(state, finalUrl.toString(), "Cross-origin redirect is blocked.");
+  if (canonicalUrl.origin !== view.location.origin) {
+    recordRedirectError(state, canonicalUrl.toString(), "Cross-origin redirect is blocked.");
+    return;
+  }
+  const fallbackUrl = resolved.navFallback ? resolveNavigationUrl(resolved.navFallback, state.doc) : null;
+  if (fallbackUrl && fallbackUrl.origin !== view.location.origin) {
+    recordRedirectError(state, fallbackUrl.toString(), "Cross-origin redirect is blocked.");
     return;
   }
 
   emitLog(state, {
     type: "info",
     message: "redirect:navigate",
-    detail: { url: finalUrl.toString(), formId: target.form?.id || undefined },
+    detail: { url: canonicalUrl.toString(), formId: target.form?.id || undefined },
     timestamp: Date.now()
   });
-  view.location.assign(finalUrl.toString());
+  if (state.pathMeta.mode === "hash" && fallbackUrl) {
+    void navigateWithHashFallback(canonicalUrl.toString(), fallbackUrl.toString(), view);
+    return;
+  }
+  view.location.assign(canonicalUrl.toString());
+}
+
+function resolveNavigationUrl(urlString: string, doc: Document): URL | null {
+  const base = doc.baseURI ?? doc.defaultView?.location?.href ?? "";
+  try {
+    return new URL(urlString, base);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function navigateWithHashFallback(canonicalUrl: string, fallbackUrl: string, view: Window): Promise<void> {
+  const shouldUseFallback = !(await probeCanonicalUrl(canonicalUrl));
+  view.location.assign(shouldUseFallback ? fallbackUrl : canonicalUrl);
+}
+
+async function probeCanonicalUrl(url: string): Promise<boolean> {
+  try {
+    const options = await fetch(url, { method: "OPTIONS" });
+    if (options.status === 404) {
+      return false;
+    }
+    if (options.status !== 405 && options.status !== 501) {
+      const allow = options.headers.get("allow") ?? options.headers.get("access-control-allow-methods");
+      const allowed = allow ? allow.split(",").map((method) => method.trim().toUpperCase()) : [];
+      if (allowed.includes("HEAD")) {
+        const head = await fetch(url, { method: "HEAD" });
+        return head.status !== 404;
+      }
+      if (allowed.includes("GET")) {
+        const get = await fetch(url, { method: "GET" });
+        return get.status !== 404;
+      }
+      return true;
+    }
+    const response = await fetch(url, { method: "HEAD" });
+    if (response.status !== 405 && response.status !== 501) {
+      return response.status !== 404;
+    }
+    const get = await fetch(url, { method: "GET" });
+    return get.status !== 404;
+  } catch (error) {
+    return false;
+  }
 }
 
 function getRedirectAttribute(target: ParsedRequestTarget): string | null {
@@ -1320,8 +1696,9 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
   }
 
   const scope = buildScopeStack(element, state);
-  const resolvedUrl = interpolateTemplate(urlTemplate, scope, state, {
-    urlEncodeTokens: true
+  const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
+    urlEncodeTokens: true,
+    context: "request"
   });
 
   maybeUpdateHistoryOnSubmit(target, state);
@@ -1413,8 +1790,9 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
 async function handleStreamRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
   const { element, urlTemplate } = target;
   const scope = buildScopeStack(element, state);
-  const resolvedUrl = interpolateTemplate(urlTemplate, scope, state, {
-    urlEncodeTokens: true
+  const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
+    urlEncodeTokens: true,
+    context: "request"
   });
   const { finalUrl, init } = buildRequestInit(target, resolvedUrl.value, state.doc);
   const requestId = ++state.requestCounter;
@@ -1455,8 +1833,9 @@ async function handleStreamRequest(target: ParsedRequestTarget, state: RuntimeSt
 async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
   const { element, urlTemplate } = target;
   const scope = buildScopeStack(element, state);
-  const resolvedUrl = interpolateTemplate(urlTemplate, scope, state, {
-    urlEncodeTokens: true
+  const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
+    urlEncodeTokens: true,
+    context: "request"
   });
   const gate = createStreamGate(target);
   const mockRule = matchMockRule(resolvedUrl.value, "GET", state.mockRules);
@@ -1519,8 +1898,9 @@ async function handlePollingRequest(target: ParsedRequestTarget, state: RuntimeS
     return;
   }
   const scope = buildScopeStack(element, state);
-  const resolvedUrl = interpolateTemplate(urlTemplate, scope, state, {
-    urlEncodeTokens: true
+  const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
+    urlEncodeTokens: true,
+    context: "request"
   });
   const { finalUrl, init } = buildRequestInit(target, resolvedUrl.value, state.doc);
   const intervalMs = Math.max(200, target.pollIntervalMs ?? 1000);
@@ -2865,14 +3245,30 @@ function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: Scop
   }
 
   for (const binding of parsed.attrBindings) {
-    const interpolated = interpolateTemplate(binding.template, scope, state, {
-      urlEncodeTokens: binding.target === "href"
-    });
+    const shouldUseNav = binding.target === "href" && binding.element instanceof HTMLAnchorElement;
+    const interpolated = shouldUseNav
+      ? resolveUrlTemplate(binding.template, scope, state, {
+        urlEncodeTokens: true,
+        context: "nav"
+      })
+      : interpolateTemplate(binding.template, scope, state, {
+        urlEncodeTokens: binding.target === "href"
+      });
 
     if (interpolated.isSingleToken && interpolated.tokenValue == null) {
       binding.element.removeAttribute(binding.target);
     } else {
       binding.element.setAttribute(binding.target, interpolated.value);
+    }
+    if (shouldUseNav) {
+      if (state.pathMeta.mode === "hash" && interpolated.navFallback) {
+        binding.element.setAttribute(NAV_FALLBACK_ATTR, interpolated.navFallback);
+      } else {
+        binding.element.removeAttribute(NAV_FALLBACK_ATTR);
+      }
+    }
+    if (binding.attr.startsWith("hy-")) {
+      binding.element.removeAttribute(binding.attr);
     }
   }
 }
@@ -2973,6 +3369,116 @@ interface InterpolationResult {
   value: string;
   isSingleToken: boolean;
   tokenValue: unknown;
+  navFallback?: string | null;
+}
+
+type UrlInterpolationContext = "nav" | "request";
+
+function resolveUrlTemplate(
+  template: string,
+  scope: ScopeStack,
+  state: RuntimeState,
+  options: { urlEncodeTokens: boolean; context: UrlInterpolationContext }
+): InterpolationResult {
+  const resolved = interpolateTemplate(template, scope, state, {
+    urlEncodeTokens: options.urlEncodeTokens
+  });
+  const navResult = applyPathParamsToUrl(resolved.value, template, scope, state, options.context);
+  return { ...resolved, value: navResult.value, navFallback: navResult.fallback };
+}
+
+function applyPathParamsToUrl(
+  urlString: string,
+  template: string,
+  scope: ScopeStack,
+  state: RuntimeState,
+  context: UrlInterpolationContext
+): { value: string; fallback: string | null } {
+  const tokens = collectPathTokens(template);
+  if (tokens.length === 0) {
+    return { value: urlString, fallback: null };
+  }
+  if (context === "nav") {
+    return resolveNavUrl(urlString, template, tokens, scope, state);
+  }
+  return { value: replacePathTokens(urlString, tokens, scope, state), fallback: null };
+}
+
+function collectPathTokens(template: string): string[] {
+  const tokens: string[] = [];
+  const regex = /\[([A-Za-z0-9_$-]+)\]/g;
+  let match: RegExpExecArray | null = null;
+  while ((match = regex.exec(template)) !== null) {
+    tokens.push(match[1]);
+  }
+  return tokens;
+}
+
+function resolveNavUrl(
+  urlString: string,
+  template: string,
+  tokens: string[],
+  scope: ScopeStack,
+  state: RuntimeState
+): { value: string; fallback: string | null } {
+  const [base, hash = ""] = urlString.split("#");
+  const hashParams = parseHashParams(hash);
+  const resolved = replacePathTokensWithValues(base, tokens, hashParams, scope, state);
+  const value = resolved.value;
+  const fallback = hash ? urlString : null;
+  return { value, fallback };
+}
+
+function replacePathTokens(urlString: string, tokens: string[], scope: ScopeStack, state: RuntimeState): string {
+  return replacePathTokensWithValues(urlString, tokens, null, scope, state).value;
+}
+
+function replacePathTokensWithValues(
+  urlString: string,
+  tokens: string[],
+  hashParams: Record<string, string> | null,
+  scope: ScopeStack,
+  state: RuntimeState
+): { value: string } {
+  let result = urlString;
+  for (const token of tokens) {
+    const value = hashParams?.[token] ?? resolvePathTokenValue(token, scope, state);
+    if (value == null) {
+      recordMissingPathParam(state, token, urlString);
+      continue;
+    }
+    const encoded = encodeURIComponent(value);
+    result = result.replace(new RegExp(`\\[${token}\\]`, "g"), encoded);
+  }
+  return { value: result };
+}
+
+function resolvePathTokenValue(token: string, scope: ScopeStack, state: RuntimeState): string | null {
+  const evaluated = evaluateSelector(token, scope, state.globals);
+  if (isJsonScalar(evaluated) && evaluated != null) {
+    return String(evaluated);
+  }
+  const params = state.globals.hyParams;
+  if (Object.prototype.hasOwnProperty.call(params, token)) {
+    return params[token];
+  }
+  return null;
+}
+
+function recordMissingPathParam(state: RuntimeState, token: string, template: string): void {
+  const key = `${token}@${template}`;
+  if (state.missingPathParams.has(key)) {
+    return;
+  }
+  state.missingPathParams.add(key);
+  const detail = { context: "path", param: token, template };
+  emitLog(state, {
+    type: "error",
+    message: "path:param-missing",
+    detail,
+    timestamp: Date.now()
+  });
+  pushError(state, createHyError("data", "Missing path param", detail));
 }
 
 function interpolateTemplate(

@@ -116,6 +116,7 @@ export function parseSubtree(root: ParentNode): ParsedSubtree {
   const ifChains = parseIfChains(root);
   const textBindings = parseTextBindings(root);
   const attrBindings = parseAttrBindings(root);
+  const hrefBindings = parseHrefBindings(root);
   const fillTargets = parseFillTargets(root);
 
   return {
@@ -124,7 +125,7 @@ export function parseSubtree(root: ParentNode): ParsedSubtree {
     forTemplates,
     ifChains,
     textBindings,
-    attrBindings,
+    attrBindings: [...attrBindings, ...hrefBindings],
     fillTargets
   };
 }
@@ -878,8 +879,37 @@ function parseAttrBindings(root: ParentNode): AttrBinding[] {
         template: element.getAttribute(attr) ?? ""
       });
     }
+    if (element.hasAttribute("hy-href")) {
+      bindings.push({
+        element,
+        attr: "hy-href",
+        target: "href",
+        template: element.getAttribute("hy-href") ?? ""
+      });
+    }
   }
 
+  return bindings;
+}
+
+function parseHrefBindings(root: ParentNode): AttrBinding[] {
+  const bindings: AttrBinding[] = [];
+  const anchors = selectWithRoot(root, "a[href]");
+  for (const element of anchors) {
+    if (element.hasAttribute("hy-attr-href")) {
+      continue;
+    }
+    const template = element.getAttribute("href");
+    if (!template || !template.includes("[")) {
+      continue;
+    }
+    bindings.push({
+      element,
+      attr: "href",
+      target: "href",
+      template
+    });
+  }
   return bindings;
 }
 

@@ -26,7 +26,7 @@ HyTDE enhances forms only when executing:
 
 When `hy-mode=disable`, HyTDE MUST NOT intercept form submits.
 
-See `design/navigation.md` for a summary of baseline navigation vs fetch-only behavior, plus the `hy-redirect` proposal.
+See `design/detail/routing.md` for a summary of baseline navigation vs fetch-only behavior, plus the `hy-redirect` proposal.
 See `design/fetching.md` for the shared `hy.loading`/`hy.errors` globals and default error UI behavior.
 
 ### 2.1 Opting into fetch-only (no navigation)

@@ -1,0 +1,16 @@
+{
+  "user": {
+    "id": 102,
+    "name": "Carol",
+    "email": "carol@example.com",
+    "score": 88.9,
+    "lastLogin": "2025-12-02T08:05",
+    "phone": "090-3456-7890",
+    "subscribed": false,
+    "isStaff": false,
+    "teams": [
+      { "name": "Design" },
+      { "name": "Research" }
+    ]
+  }
+}

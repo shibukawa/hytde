@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import hyTde from "@hytde/vite-plugin";
 
 export default defineConfig({
+  appType: "mpa",
   plugins: [hyTde()],
   resolve: {
     alias: {

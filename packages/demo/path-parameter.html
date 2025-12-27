@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/users path=/mocks/user-search.json" />
+    <title>⭐️HyTDE Path Parameters</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body hy-cloak style="display: none;" class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-4 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Path Parameters</h1>
+            <p class="text-sm opacity-70">Hash fallback, path templates, and URL interpolation.</p>
+          </div>
+          <div class="badge badge-outline">hy-path</div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-2">
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Source</h2>
+              <div role="tablist" class="tabs tabs-boxed">
+                <button class="tab tab-active" data-tab="html" type="button">HTML</button>
+                <button class="tab" data-tab="json" type="button">JSON (/api/users)</button>
+              </div>
+            </div>
+            <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  CDN Import
+                </div>
+                <pre
+                  id="source-cdn"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading CDN snippet...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  Inline Script
+                </div>
+                <pre
+                  id="source-script"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading script...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  HTML
+                </div>
+                <pre
+                  id="source-html"
+                  class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading source...</pre>
+              </div>
+            </div>
+            <div
+              id="source-json-users"
+              class="hidden rounded-lg border border-base-300 bg-base-200 p-3"
+              data-tab-panel="json"
+            >
+              <pre
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                data-json-source="/mocks/user-search.json"
+              >Loading JSON...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Transformed HTML</h2>
+            <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="transformed-html"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Waiting for first render...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Rendered Output</h2>
+            <div
+              id="render-output"
+              class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm"
+            >
+              <section class="space-y-6">
+                <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+                  <hy-get src="/api/users" store="users"></hy-get>
+                  <div class="flex items-center justify-between gap-2">
+                    <h3 class="text-lg font-semibold">Users</h3>
+                    <span class="badge badge-outline">hy-get</span>
+                  </div>
+                  <p class="text-xs opacity-70">Request URL: <code>/api/users</code></p>
+                  <ul
+                    class="space-y-2 rounded-lg border border-base-200 bg-base-200/60 p-3"
+                  >
+                    <li
+                      class="flex items-center justify-between rounded-lg border border-base-200 bg-base-100 px-3 py-2 text-sm"
+                      hy-for="user of users.data.users"
+                    >
+                      <div class="flex flex-col">
+                        <span class="font-medium" hy="user.name">User</span>
+                        <span class="text-xs opacity-60">userId: <span hy="user.id">-</span></span>
+                      </div>
+                      <a
+                        class="btn btn-xs btn-primary"
+                        hy-href="/path-parameter/[userId].html#userId={user.id}"
+                      >
+                        Open Detail
+                      </a>
+                    </li>
+                    <li class="rounded-lg border border-base-200 bg-base-100 px-3 py-2 text-sm" hy-dummy>
+                      Placeholder
+                    </li>
+                  </ul>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Runtime Log</h2>
+            <div
+              id="runtime-log"
+              class="rounded-lg border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed"
+            >
+              <div class="opacity-60">Log entries will appear here.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+      // start-script
+      // end-script
+      init();
+    </script>
+    <template id="source-inline-script">
+      // start-script
+      // end-script
+    </template>
+    <script type="text/plain" id="source-html-template">
+<section class="space-y-6">
+  <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+    <hy-get src="/api/users" store="users"></hy-get>
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="text-lg font-semibold">Users</h3>
+      <span class="badge badge-outline">hy-get</span>
+    </div>
+    <ul
+      class="space-y-2 rounded-lg border border-base-200 bg-base-200/60 p-3"
+    >
+      <li
+        class="flex items-center justify-between rounded-lg border border-base-200 bg-base-100 px-3 py-2 text-sm"
+        hy-for="user of users.data.users"
+      >
+        <div class="flex flex-col">
+          <span class="font-medium" hy="user.name">User</span>
+          <span class="text-xs opacity-60">userId: <span hy="user.id">-</span></span>
+        </div>
+        <a
+          class="btn btn-xs btn-primary"
+          hy-href="/path-parameter/[userId].html#userId={user.id}"
+        >
+          Open Detail
+        </a>
+      </li>
+      <li class="rounded-lg border border-base-200 bg-base-100 px-3 py-2 text-sm" hy-dummy>
+        Placeholder
+      </li>
+    </ul>
+  </div>
+</section>
+    </script>
+    <script type="text/plain" id="source-json-template"></script>
+    <template id="source-cdn-template">
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
+    </template>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

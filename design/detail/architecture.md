@@ -10,7 +10,7 @@ Related specs:
 - Fetching & mocking: `design/fetching.md`
 - Imports: `design/template-import.md`
 - Routing: `design/routing.md` (+ optional route fallback server proposal)
-- Navigation: `design/navigation.md`
+- Navigation: `design/detail/routing.md`
 - Forms: `design/forms.md`
 - Tables (extable): `design/table.md`
 - Dynamic behaviors (validators, JSON submit): `design/dynamic-behavior.md`
@@ -163,9 +163,9 @@ HyTDE enhancement:
 - `hy-history` supports URL↔form sync patterns for search screens
 
 Optional proposal:
-- `hy-redirect` to navigate after a fetch-only submit (`design/navigation.md`)
+- `hy-redirect` to navigate after a fetch-only submit (`design/detail/routing.md`)
 
-See `design/forms.md` and `design/navigation.md`.
+See `design/detail/forms.md` and `design/detail/routing.md`.
 
 ## 7. JavaScript extension points (progressive enhancement)
 

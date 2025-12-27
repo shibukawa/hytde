@@ -1,4 +1,4 @@
-import { createRuntime, type Runtime } from "@hytde/runtime";
+import { createRuntime, type Runtime, initHyPathParams } from "@hytde/runtime";
 import {
   parseDocument,
   parseSubtree
@@ -13,6 +13,7 @@ export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime
   const runtime = createRuntime({ parseDocument, parseSubtree });
   const doc = resolveDocument(root);
   if (doc) {
+    initHyPathParams(doc);
     runtime.init(parseDocument(doc));
   }
 
@@ -20,6 +21,7 @@ export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime
     init(target?: Document | HTMLElement) {
       const targetDoc = resolveDocument(target);
       if (targetDoc) {
+        initHyPathParams(targetDoc);
         runtime.init(parseDocument(targetDoc));
       }
     },

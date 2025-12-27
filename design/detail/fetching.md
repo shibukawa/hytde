@@ -5,8 +5,8 @@ This document specifies the behavior of `hy-get` (and related fetch directives) 
 ## 0. Fetch Declaration Styles
 
 HyTDE supports two declaration styles for `hy-get`:
-- Attribute form: `hy-get="/api/..."` on a container element (existing behavior).
-- Element form: a dedicated `<hy-get>` tag (preferred for multiple requests per form).
+- Attribute form: `hy-get="/api/..."` on an action element (button/input/form).
+- Element form: a dedicated `<hy-get>` tag (preferred for startup requests).
 
 The element form enables multiple requests within a single form or section without overloading a single element with multiple directives.
 
@@ -42,8 +42,37 @@ Note:
   - `fill-into` takes a CSS selector string (e.g. `fill-into="#user-form"`).
   - `fill-into` is optional; if omitted, no default fill target is assumed.
 - Attribute `hy-get` executes on form action/submit; tag `<hy-get>` executes during startup load.
-- For flexibility, request attributes MAY also be allowed on `<button>`/`<input type="submit">` elements when their semantics are clearly defined (future clarification).
-- `<hy-get>` remains the preferred tag form for startup data fetches outside form submission.
+- Attribute form is restricted to action elements: `<form>`, `<button>`, and `<input>` (including text inputs for live queries).
+- `<hy-get>` / `<hy-get-stream>` / `<hy-sse>` / `<hy-get-polling>` are the preferred tag forms for startup data fetches outside form submission.
+
+### 0.3 Action-triggered attribute requests (proposal)
+
+Attribute form requests on action elements are user-driven and run on interaction:
+- `<button hy-get="...">` fires on click.
+- `<input hy-get="...">` fires on input/change (debounced when `hy-debounce` is present).
+- `<form hy-post="...">` fires on submit (existing behavior).
+
+Use cases beyond form submit:
+```html
+<button hy-get="/api/notifications" command="show-popover" commandfor="notification-list">
+  Notifications
+</button>
+```
+- If `command`/`commandfor` are present, HyTDE runs the `hy-get` request first, writes to store, re-renders, then dispatches the command.
+- Command dispatch MUST occur after DOM updates so newly rendered popover content is available.
+- For action buttons, HyTDE SHOULD prefetch on hover (pointerenter/mouseover). If a click occurs within 10 seconds of the last prefetch, HyTDE SHOULD reuse the prefetched response instead of issuing a new request.
+
+Live query example:
+```html
+<input
+  hy-get="/api/find-users?name=[value]"
+  hy-debounce
+  command="show-popover"
+  commandfor="completionlist"
+/>
+```
+- `[value]` interpolates the current input value (percent-encoded).
+- The request runs first; the popover command runs after store update and re-render.
 
 ### 0.4 Form submission encoding (non-GET)
 
@@ -53,7 +82,7 @@ For non-GET (`hy-post`/`hy-put`/`hy-patch`/`hy-delete`) submissions:
 - If `enctype="application/x-www-form-urlencoded"` is explicitly set, HyTDE sends URL-encoded form data.
 - If `enctype="multipart/form-data"` is explicitly set, HyTDE sends multipart form data.
 
-### 0.3 Scope-aware access diagnostics (proposal)
+### 0.5 Scope-aware access diagnostics (proposal)
 
 When a selector fails to resolve due to scope boundaries, HyTDE SHOULD emit a diagnostic that distinguishes:
 - **Scope miss** (the name exists in another scope but is not accessible here)
