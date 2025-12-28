@@ -54,7 +54,7 @@ export interface RequestTarget {
   streamKey: string | null;
   pollIntervalMs: number | null;
   isForm: boolean;
-  trigger: "startup" | "submit";
+  trigger: "startup" | "submit" | "action";
   form: HTMLFormElement | null;
   fillInto: string | null;
 }
@@ -304,8 +304,16 @@ function parseRequestTargets(doc: Document): RequestTarget[] {
     }
     const isForm = element instanceof HTMLFormElement;
     const isSubmitter = isSubmitControl(element);
-    const trigger = isForm || isSubmitter ? "submit" : "startup";
-    const form = isForm ? (element as HTMLFormElement) : isSubmitter ? getSubmitterForm(element) : null;
+    const isAction = isActionElement(element);
+    if (!isForm && !isSubmitter && !isAction) {
+      continue;
+    }
+    const trigger = isForm || isSubmitter ? "submit" : "action";
+    const form = isForm
+      ? (element as HTMLFormElement)
+      : isSubmitter || isAction
+        ? getSubmitterForm(element as HTMLButtonElement | HTMLInputElement)
+        : null;
     targets.push({
       element,
       urlTemplate,
@@ -363,6 +371,10 @@ function isSubmitControl(element: Element): element is HTMLButtonElement | HTMLI
 
 function getSubmitterForm(element: HTMLButtonElement | HTMLInputElement): HTMLFormElement | null {
   return element.form ?? (element.closest("form") as HTMLFormElement | null);
+}
+
+function isActionElement(element: Element): element is HTMLButtonElement | HTMLInputElement {
+  return element instanceof HTMLButtonElement || element instanceof HTMLInputElement;
 }
 
 function parseGetTagTargets(doc: Document): RequestTarget[] {

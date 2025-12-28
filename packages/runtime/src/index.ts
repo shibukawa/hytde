@@ -112,7 +112,7 @@ export interface ParsedRequestTarget {
   streamKey: string | null;
   pollIntervalMs: number | null;
   isForm: boolean;
-  trigger: "startup" | "submit";
+  trigger: "startup" | "submit" | "action";
   form: HTMLFormElement | null;
   fillInto: string | null;
 }
@@ -190,6 +190,12 @@ interface RuntimeState {
   autoSubmitListeners: WeakSet<HTMLFormElement>;
   autoSubmitState: WeakMap<HTMLFormElement, AutoSubmitState>;
   inFlightForms: WeakSet<HTMLFormElement>;
+  actionListeners: WeakSet<Element>;
+  actionDebounceTimers: WeakMap<Element, number>;
+  actionPrefetchCache: Map<string, { timestamp: number; payload: unknown }>;
+  actionPrefetchInFlight: Map<string, Promise<void>>;
+  actionCommandSkip: WeakSet<Element>;
+  optimisticInputValues: WeakMap<HTMLInputElement, unknown>;
   historyListenerAttached: boolean;
   renderCallbacks: Array<() => void>;
   logCallbacks: Array<(entry: HyLogEntry) => void>;
@@ -440,6 +446,12 @@ function getRuntimeState(
     autoSubmitListeners: new WeakSet(),
     autoSubmitState: new WeakMap(),
     inFlightForms: new WeakSet(),
+    actionListeners: new WeakSet(),
+    actionDebounceTimers: new WeakMap(),
+    actionPrefetchCache: new Map(),
+    actionPrefetchInFlight: new Map(),
+    actionCommandSkip: new WeakSet(),
+    optimisticInputValues: new WeakMap(),
     historyListenerAttached: false,
     renderCallbacks,
     logCallbacks,
@@ -904,6 +916,7 @@ function removeDummyNodes(nodes: Element[]): void {
 
 async function bootstrapRuntime(state: RuntimeState): Promise<void> {
   setupFormHandlers(state);
+  setupActionHandlers(state);
   setupAutoSubmitHandlers(state);
   setupHistoryHandlers(state);
   const hasStartupRequests = state.parsed.requestTargets.some((target) => target.trigger === "startup");
@@ -979,6 +992,86 @@ function setupFormHandlers(state: RuntimeState): void {
       void handleRequest(resolved, state);
     });
   }
+}
+
+function setupActionHandlers(state: RuntimeState): void {
+  const view = state.doc.defaultView;
+  if (!view) {
+    return;
+  }
+
+  for (const target of state.parsed.requestTargets) {
+    if (target.trigger !== "action") {
+      continue;
+    }
+    const element = target.element;
+    if (state.actionListeners.has(element)) {
+      continue;
+    }
+    state.actionListeners.add(element);
+
+    if (element instanceof HTMLButtonElement) {
+      element.addEventListener("click", (event) => {
+        if (state.actionCommandSkip.has(element)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void handleActionRequest(target, state);
+      });
+
+      if (target.method === "GET") {
+        element.addEventListener("pointerenter", () => {
+          void prefetchActionRequest(target, state);
+        });
+      }
+      continue;
+    }
+
+    if (element instanceof HTMLInputElement) {
+      element.addEventListener("input", () => {
+        scheduleActionRequest(target, state);
+      });
+    }
+  }
+}
+
+function scheduleActionRequest(target: ParsedRequestTarget, state: RuntimeState): void {
+  const element = target.element;
+  const debounceMs = getDebounceMsForElement(element);
+  if (!debounceMs) {
+    void handleActionRequest(target, state);
+    return;
+  }
+  const view = state.doc.defaultView;
+  if (!view) {
+    void handleActionRequest(target, state);
+    return;
+  }
+  const existing = state.actionDebounceTimers.get(element);
+  if (existing) {
+    view.clearTimeout(existing);
+  }
+  const timer = view.setTimeout(() => {
+    state.actionDebounceTimers.delete(element);
+    void handleActionRequest(target, state);
+  }, debounceMs);
+  state.actionDebounceTimers.set(element, timer);
+}
+
+function getDebounceMsForElement(element: Element): number | null {
+  const raw = element.getAttribute("hy-debounce");
+  if (raw === null) {
+    return null;
+  }
+  if (raw.trim() === "") {
+    return 200;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 200;
+  }
+  return parsed;
 }
 
 function setupAutoSubmitHandlers(state: RuntimeState): void {
@@ -1654,6 +1747,181 @@ function getRedirectAttribute(target: ParsedRequestTarget): string | null {
   return null;
 }
 
+function resolveRequestUrl(target: ParsedRequestTarget, state: RuntimeState): InterpolationResult {
+  const scope = buildScopeStack(target.element, state);
+  let template = target.urlTemplate;
+  if (target.element instanceof HTMLInputElement) {
+    const encoded = encodeURIComponent(target.element.value ?? "");
+    template = template.replace(/\[value\]/g, encoded);
+  }
+  return resolveUrlTemplate(template, scope, state, {
+    urlEncodeTokens: true,
+    context: "request"
+  });
+}
+
+async function handleActionRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<boolean> {
+  if (!target.element.isConnected) {
+    return false;
+  }
+
+  if (target.element instanceof HTMLButtonElement && target.method === "GET") {
+    const cached = getPrefetchCacheEntry(target, state);
+    if (cached) {
+      applyRequestPayload(target, cached.payload, state);
+      dispatchCommandIfNeeded(target, state);
+      emitLog(state, {
+        type: "info",
+        message: "prefetch:hit",
+        detail: { url: resolveRequestUrl(target, state).value },
+        timestamp: Date.now()
+      });
+      return true;
+    }
+  }
+
+  let previousValue: unknown = null;
+  const isOptimisticInput = target.element instanceof HTMLInputElement && target.method !== "GET";
+  if (isOptimisticInput) {
+    const input = target.element as HTMLInputElement;
+    previousValue = getOptimisticInputValue(input, state);
+    state.optimisticInputValues.set(input, readInputValue(input));
+  }
+
+  const success = await handleRequest(target, state);
+  if (!success && isOptimisticInput && target.element instanceof HTMLInputElement) {
+    applyControlValue(target.element, previousValue);
+    state.optimisticInputValues.set(target.element, previousValue);
+    return false;
+  }
+
+  if (success) {
+    dispatchCommandIfNeeded(target, state);
+  }
+
+  return success;
+}
+
+function getOptimisticInputValue(input: HTMLInputElement, state: RuntimeState): unknown {
+  if (state.optimisticInputValues.has(input)) {
+    return state.optimisticInputValues.get(input);
+  }
+  const initial = readInitialInputValue(input);
+  state.optimisticInputValues.set(input, initial);
+  return initial;
+}
+
+function readInitialInputValue(input: HTMLInputElement): unknown {
+  if (input.type === "checkbox") {
+    return input.defaultChecked;
+  }
+  if (input.type === "radio") {
+    return input.defaultChecked ? input.value : "";
+  }
+  return input.defaultValue;
+}
+
+function readInputValue(input: HTMLInputElement): unknown {
+  if (input.type === "checkbox") {
+    return input.checked;
+  }
+  if (input.type === "radio") {
+    return input.checked ? input.value : "";
+  }
+  return input.value;
+}
+
+function dispatchCommandIfNeeded(target: ParsedRequestTarget, state: RuntimeState): void {
+  const element = target.element;
+  const command = element.getAttribute("command");
+  const commandFor = element.getAttribute("commandfor");
+  if (!command && !commandFor) {
+    return;
+  }
+  if (!(element instanceof HTMLElement)) {
+    return;
+  }
+  state.actionCommandSkip.add(element);
+  try {
+    element.click();
+  } finally {
+    state.actionCommandSkip.delete(element);
+  }
+}
+
+function applyRequestPayload(target: ParsedRequestTarget, payload: unknown, state: RuntimeState): void {
+  applyStore(target, payload, state);
+  if (target.fillInto) {
+    applyFillInto(target.fillInto, payload, state);
+  }
+  maybeRedirectAfterSubmit(target, payload, state);
+  cleanupRequestTarget(target);
+  if (target.store && !state.bootstrapPending) {
+    renderDocument(state, [{ type: "store", selector: target.store }]);
+  }
+}
+
+function getPrefetchCacheEntry(
+  target: ParsedRequestTarget,
+  state: RuntimeState
+): { timestamp: number; payload: unknown } | null {
+  const resolved = resolveRequestUrl(target, state);
+  const cached = state.actionPrefetchCache.get(resolved.value);
+  if (!cached) {
+    return null;
+  }
+  if (Date.now() - cached.timestamp > 10_000) {
+    state.actionPrefetchCache.delete(resolved.value);
+    return null;
+  }
+  return cached;
+}
+
+async function prefetchActionRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
+  if (target.method !== "GET") {
+    return;
+  }
+  const resolved = resolveRequestUrl(target, state);
+  if (state.actionPrefetchCache.has(resolved.value)) {
+    return;
+  }
+  const existing = state.actionPrefetchInFlight.get(resolved.value);
+  if (existing) {
+    return;
+  }
+  const { finalUrl, init } = buildRequestInit(target, resolved.value, state.doc);
+  const promise = fetchRequest(finalUrl, init, state)
+    .then((response) => {
+      if (!response.ok) {
+        return;
+      }
+      state.actionPrefetchCache.set(resolved.value, {
+        timestamp: Date.now(),
+        payload: response.data
+      });
+      emitLog(state, {
+        type: "info",
+        message: "prefetch:store",
+        detail: { url: resolved.value },
+        timestamp: Date.now()
+      });
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      emitLog(state, {
+        type: "error",
+        message: "prefetch:error",
+        detail: { url: resolved.value, method: target.method, error: message },
+        timestamp: Date.now()
+      });
+    })
+    .finally(() => {
+      state.actionPrefetchInFlight.delete(resolved.value);
+    });
+  state.actionPrefetchInFlight.set(resolved.value, promise);
+  await promise;
+}
+
 function recordRedirectError(state: RuntimeState, url: string, message: string): void {
   const detail: HyError["detail"] = { url, method: "REDIRECT" };
   pushError(state, createHyError("request", message, detail));
@@ -1668,22 +1936,22 @@ function recordRedirectError(state: RuntimeState, url: string, message: string):
   }
 }
 
-async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
-  const { element, urlTemplate } = target;
+async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<boolean> {
+  const { element } = target;
   if (!element.isConnected) {
-    return;
+    return false;
   }
   if (target.kind === "stream") {
     await handleStreamRequest(target, state);
-    return;
+    return true;
   }
   if (target.kind === "sse") {
     await handleSseRequest(target, state);
-    return;
+    return true;
   }
   if (target.kind === "polling") {
     await handlePollingRequest(target, state);
-    return;
+    return true;
   }
   if (target.form && state.inFlightForms.has(target.form)) {
     emitLog(state, {
@@ -1692,14 +1960,10 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
       detail: { reason: "in-flight", formId: target.form.id || undefined },
       timestamp: Date.now()
     });
-    return;
+    return false;
   }
 
-  const scope = buildScopeStack(element, state);
-  const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
-    urlEncodeTokens: true,
-    context: "request"
-  });
+  const resolvedUrl = resolveRequestUrl(target, state);
 
   maybeUpdateHistoryOnSubmit(target, state);
 
@@ -1718,7 +1982,7 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
         state.inFlightForms.delete(target.form);
       }
     });
-    return;
+    return true;
   }
 
   const requestId = ++state.requestCounter;
@@ -1737,6 +2001,7 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
     state.inFlightForms.add(target.form);
   }
 
+  let succeeded = false;
   const requestPromise = fetchRequest(finalUrl, init, state)
     .then(async (response) => {
       emitLog(state, {
@@ -1755,15 +2020,8 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
         );
         return;
       }
-      const payload = applyStore(target, response.data, state);
-      if (target.fillInto) {
-        applyFillInto(target.fillInto, payload, state);
-      }
-      maybeRedirectAfterSubmit(target, payload, state);
-      cleanupRequestTarget(target);
-      if (target.store && !state.bootstrapPending) {
-        renderDocument(state, [{ type: "store", selector: target.store }]);
-      }
+      applyRequestPayload(target, response.data, state);
+      succeeded = true;
     })
     .catch((error: unknown) => {
       recordError(state, error, finalUrl, method);
@@ -1785,6 +2043,7 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
   }
 
   await requestPromise;
+  return succeeded;
 }
 
 async function handleStreamRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {

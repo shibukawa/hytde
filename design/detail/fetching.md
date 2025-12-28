@@ -45,7 +45,7 @@ Note:
 - Attribute form is restricted to action elements: `<form>`, `<button>`, and `<input>` (including text inputs for live queries).
 - `<hy-get>` / `<hy-get-stream>` / `<hy-sse>` / `<hy-get-polling>` are the preferred tag forms for startup data fetches outside form submission.
 
-### 0.3 Action-triggered attribute requests (proposal)
+### 0.3 Action-triggered attribute requests
 
 Attribute form requests on action elements are user-driven and run on interaction:
 - `<button hy-get="...">` fires on click.
@@ -59,8 +59,9 @@ Use cases beyond form submit:
 </button>
 ```
 - If `command`/`commandfor` are present, HyTDE runs the `hy-get` request first, writes to store, re-renders, then dispatches the command.
-- Command dispatch MUST occur after DOM updates so newly rendered popover content is available.
-- For action buttons, HyTDE SHOULD prefetch on hover (pointerenter/mouseover). If a click occurs within 10 seconds of the last prefetch, HyTDE SHOULD reuse the prefetched response instead of issuing a new request.
+- Command dispatch happens after DOM updates so newly rendered popover content is available.
+- For action buttons, HyTDE prefetches on hover (pointerenter/mouseover). If a click occurs within 10 seconds of the last prefetch, HyTDE reuses the prefetched response instead of issuing a new request.
+- For inputs with non-GET requests (`hy-post`, `hy-put`, etc.), HyTDE applies optimistic UI updates and rolls back to the previous value on error; `command`/`commandfor` do not run on error.
 
 Live query example:
 ```html

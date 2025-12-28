@@ -374,6 +374,94 @@ const dumpTransformed = () => {
   transformed.innerHTML = highlightHtml(formatted || " ");
 };
 
+const updatePopoverVisibility = () => {
+  const state = (globalThis as {
+    hyState?: { suggestions?: { items?: unknown }; notifications?: { items?: unknown } };
+  }).hyState;
+
+  const popovers = [
+    {
+      id: "completion-popover",
+      items: state?.suggestions?.items
+    },
+    {
+      id: "notification-popover",
+      items: state?.notifications?.items
+    }
+  ];
+
+  for (const entry of popovers) {
+    const popover = document.getElementById(entry.id);
+    if (!popover) {
+      continue;
+    }
+    const hasItems = Array.isArray(entry.items) && entry.items.length > 0;
+    if (!hasItems) {
+      popover.classList.add("hidden");
+      continue;
+    }
+    if (popover.dataset.dismissed === "true") {
+      popover.classList.add("hidden");
+      continue;
+    }
+    popover.classList.remove("hidden");
+  }
+};
+
+const setupPopoverDismissal = () => {
+  const anchors = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-demo-popover-anchor]")
+  );
+
+  const clearDismissed = (popoverId: string) => {
+    const popover = document.getElementById(popoverId);
+    if (!popover) {
+      return;
+    }
+    delete popover.dataset.dismissed;
+    updatePopoverVisibility();
+  };
+
+  for (const anchor of anchors) {
+    const popoverId = anchor.dataset.demoPopoverAnchor;
+    if (!popoverId) {
+      continue;
+    }
+    const handler = () => clearDismissed(popoverId);
+    anchor.addEventListener("click", handler);
+    anchor.addEventListener("focusin", handler);
+    anchor.addEventListener("input", handler);
+  }
+
+  document.addEventListener("click", (event) => {
+    const target = event.target as Node;
+    const popoverIds = new Set(
+      anchors.map((anchor) => anchor.dataset.demoPopoverAnchor).filter(Boolean) as string[]
+    );
+    const insideAnchor = anchors.some((anchor) => anchor.contains(target));
+    if (insideAnchor) {
+      return;
+    }
+    for (const popoverId of popoverIds) {
+      const popover = document.getElementById(popoverId);
+      if (!popover) {
+        continue;
+      }
+      if (popover.contains(target)) {
+        return;
+      }
+    }
+    for (const popoverId of popoverIds) {
+      const popover = document.getElementById(popoverId);
+      if (!popover) {
+        continue;
+      }
+      popover.dataset.dismissed = "true";
+      popover.classList.add("hidden");
+    }
+  });
+};
+
 const registerRuntimeHooks = () => {
   const runtimeGlobal = globalThis as typeof globalThis & { hy?: Record<string, unknown> };
   const hy = (runtimeGlobal.hy ?? { loading: false, errors: [] }) as Record<string, unknown>;
@@ -437,6 +525,7 @@ const runtimeGlobal = globalThis as typeof globalThis & {
   hy?: { onRenderComplete?: (cb: () => void) => void; onLog?: (cb: (entry: unknown) => void) => void };
 };
 runtimeGlobal.hy?.onRenderComplete?.(dumpTransformed);
+runtimeGlobal.hy?.onRenderComplete?.(updatePopoverVisibility);
 runtimeGlobal.hy?.onLog?.(appendLog);
 const bufferedLogs = (runtimeGlobal.hy as Record<string, unknown> | undefined)?.[LOG_BUFFER_KEY];
 if (Array.isArray(bufferedLogs)) {
@@ -451,6 +540,8 @@ appendLog({
 });
 
 dumpTransformed();
+updatePopoverVisibility();
+setupPopoverDismissal();
 
 async function loadMockJsonInto(target: HTMLElement): Promise<void> {
   const mockMetas = Array.from(document.querySelectorAll<HTMLMetaElement>('meta[name="hy-mock"]'));
