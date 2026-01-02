@@ -119,8 +119,9 @@ Example (build/runtime injected CSS; not required in the source template):
 For describing expected server responses during static design, you may place a comment dummy near a request element:
 
 ```html
-<section hy-get="/api/users/{hyParams.userId}">
-  <!-- hy-get-dummy: { "user": { "id": 1, "name": "Alice" } } -->
+<hy-get src="/api/users/{hyParams.userId}"></hy-get>
+<!-- hy-get-dummy: { "user": { "id": 1, "name": "Alice" } } -->
+<section>
   ...
 </section>
 ```

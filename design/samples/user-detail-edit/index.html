@@ -19,7 +19,8 @@
         - After successful save: redirect back to the list page.
       -->
 
-      <section hy-get="/api/users/{hyParams.userId}" hy-store="current" hy-unwrap="data">
+      <hy-get src="/api/users/{hyParams.userId}" store="current" unwrap="data"></hy-get>
+      <section>
         <!-- Example response: { "user": { "id": 100, "name": "Alice", "email": "alice@example.com", "status": "active" } } -->
 
         <form

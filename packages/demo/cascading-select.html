@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <title>⭐️HyTDE Cascading Selects</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body hy-cloak style="display: none;" class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-4 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Cascading Selects</h1>
+            <p class="text-sm opacity-70">
+              Drill-down select boxes with cascading resets and disabled state during fetch lag.
+            </p>
+          </div>
+          <div class="badge badge-outline">UI Pattern 4</div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-2">
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Source</h2>
+              <div role="tablist" class="tabs tabs-boxed">
+                <button class="tab tab-active" data-tab="html" type="button">HTML</button>
+                <button class="tab" data-tab="json" type="button">JSON (Mocks)</button>
+              </div>
+            </div>
+            <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  CDN Import
+                </div>
+                <pre
+                  id="source-cdn"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading CDN snippet...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  Inline Script
+                </div>
+                <pre
+                  id="source-script"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading script...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  HTML
+                </div>
+                <pre
+                  id="source-html"
+                  class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading source...</pre>
+              </div>
+            </div>
+            <div
+              id="source-json-blocks"
+              data-tab-panel="json"
+              class="hidden rounded-lg border border-base-300 bg-base-200 p-3"
+            >
+              <pre
+                id="source-json"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Loading JSON...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Transformed HTML</h2>
+            <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="transformed-html"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Waiting for first render...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Rendered Output</h2>
+            <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
+              <section class="space-y-5">
+                <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+                  <hy-get src="/api/categories" store="aOptions"></hy-get>
+                  <h3 class="text-lg font-semibold">Product Drill-down</h3>
+                  <p class="mt-1 text-xs text-base-content/60">
+                    Select a category to refresh downstream options. Subcategories and items reset and disable while
+                    awaiting new data.
+                  </p>
+                  <div class="mt-4 grid gap-4 md:grid-cols-3">
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Category
+                      <select
+                        class="select select-bordered text-sm"
+                        name="a"
+                        hy-get="/api/subcategories/{a}"
+                        hy-store="bOptions"
+                      >
+                        <option value="">(select one)</option>
+                        <option hy-for="a of aOptions" hy-attr-value="{a.id}" hy="a.name"></option>
+                      </select>
+                    </label>
+
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-if="bOptions">
+                      Subcategory
+                      <select
+                        class="select select-bordered text-sm"
+                        name="b"
+                        hy-get="/api/items/{b}"
+                        hy-store="cOptions"
+                      >
+                        <option value="">(select one)</option>
+                        <option hy-for="b of bOptions" hy-attr-value="{b.id}" hy="b.name"></option>
+                      </select>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-else>
+                      Subcategory
+                      <select class="select select-bordered text-sm" name="b" disabled>
+                        <option value="">(select one)</option>
+                      </select>
+                    </label>
+
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-if="cOptions">
+                      Item
+                      <select class="select select-bordered text-sm" name="c">
+                        <option value="">(select one)</option>
+                        <option hy-for="c of cOptions" hy-attr-value="{c.id}" hy="c.name"></option>
+                      </select>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-else>
+                      Item
+                      <select class="select select-bordered text-sm" name="c" disabled>
+                        <option value="">(select one)</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="rounded-lg border border-base-300 bg-white/90 p-4 text-xs text-base-content/60 shadow-sm">
+                  <p>
+                    Reset behavior: updating a dataset clears downstream selections and datasets. Dependent selects stay
+                    disabled until new options arrive.
+                  </p>
+                </section>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Runtime Log</h2>
+            <div
+              id="runtime-log"
+              class="rounded-lg border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed"
+            >
+              <div class="opacity-60">Log entries will appear here.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module" hy-debug>
+      import { http, HttpResponse } from "msw";
+      import "@hytde/standalone/debug-api";
+      // start-script
+      const categories = [
+        { id: "a1", name: "Hardware" },
+        { id: "a2", name: "Software" },
+        { id: "a3", name: "Services" }
+      ];
+      const subcategories = {
+        a1: [
+          { id: "b1", name: "Laptops" },
+          { id: "b2", name: "Desktops" }
+        ],
+        a2: [
+          { id: "b3", name: "Apps" },
+          { id: "b4", name: "APIs" }
+        ],
+        a3: [{ id: "b5", name: "Support" }]
+      };
+      const items = {
+        b1: [
+          { id: "c1", name: "Ultrabook" },
+          { id: "c2", name: "Workstation" }
+        ],
+        b2: [{ id: "c3", name: "Mini PC" }],
+        b3: [{ id: "c4", name: "Calendar" }],
+        b4: [{ id: "c5", name: "Billing" }],
+        b5: [{ id: "c6", name: "Onboarding" }]
+      };
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      globalThis.hy.mockServiceWorker(
+        http.get("/api/categories", async () => {
+          await sleep(400);
+          return HttpResponse.json(categories);
+        }),
+        http.get("/api/subcategories/", async () => {
+          await sleep(600);
+          return HttpResponse.json([]);
+        }),
+        http.get("/api/subcategories/:category", async ({ params }) => {
+          await sleep(600);
+          const key = String(params.category ?? "");
+          return HttpResponse.json(subcategories[key] ?? []);
+        }),
+        http.get("/api/items/", async () => {
+          await sleep(800);
+          return HttpResponse.json([]);
+        }),
+        http.get("/api/items/:subcategory", async ({ params }) => {
+          await sleep(800);
+          const key = String(params.subcategory ?? "");
+          return HttpResponse.json(items[key] ?? []);
+        })
+      );
+      // end-script
+    </script>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+
+      const attachStoreLog = () => {
+        const hy = globalThis.hy;
+        if (hy?.onLog) {
+          hy.onLog((entry) => {
+            if (
+              entry.type === "request" &&
+              typeof entry.detail?.url === "string" &&
+              entry.detail.url.includes("/api/categories")
+            ) {
+              console.debug("[hytde] demo:aOptions", {
+                value: globalThis.hyState?.aOptions ?? null
+              });
+            }
+          });
+          return;
+        }
+        setTimeout(attachStoreLog, 0);
+      };
+      attachStoreLog();
+
+      init();
+    </script>
+    <template id="source-inline-script">
+      // start-script
+      // mock registration (hy-debug script)
+      import "@hytde/standalone/debug-api";
+      const categories = [
+        { id: "a1", name: "Hardware" },
+        { id: "a2", name: "Software" },
+        { id: "a3", name: "Services" }
+      ];
+      const subcategories = {
+        a1: [
+          { id: "b1", name: "Laptops" },
+          { id: "b2", name: "Desktops" }
+        ],
+        a2: [
+          { id: "b3", name: "Apps" },
+          { id: "b4", name: "APIs" }
+        ],
+        a3: [{ id: "b5", name: "Support" }]
+      };
+      const items = {
+        b1: [
+          { id: "c1", name: "Ultrabook" },
+          { id: "c2", name: "Workstation" }
+        ],
+        b2: [{ id: "c3", name: "Mini PC" }],
+        b3: [{ id: "c4", name: "Calendar" }],
+        b4: [{ id: "c5", name: "Billing" }],
+        b5: [{ id: "c6", name: "Onboarding" }]
+      };
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      globalThis.hy.mockServiceWorker(
+        http.get("/api/categories", async () => {
+          await sleep(400);
+          return HttpResponse.json(categories);
+        }),
+        http.get("/api/subcategories/", async () => {
+          await sleep(600);
+          return HttpResponse.json([]);
+        }),
+        http.get("/api/subcategories/:category", async ({ params }) => {
+          await sleep(600);
+          const key = String(params.category ?? "");
+          return HttpResponse.json(subcategories[key] ?? []);
+        }),
+        http.get("/api/items/", async () => {
+          await sleep(800);
+          return HttpResponse.json([]);
+        }),
+        http.get("/api/items/:subcategory", async ({ params }) => {
+          await sleep(800);
+          const key = String(params.subcategory ?? "");
+          return HttpResponse.json(items[key] ?? []);
+        })
+      );
+      // init script
+      const attachStoreLog = () => {
+        const hy = globalThis.hy;
+        if (hy?.onLog) {
+          hy.onLog((entry) => {
+            if (
+              entry.type === "request" &&
+              typeof entry.detail?.url === "string" &&
+              entry.detail.url.includes("/api/categories")
+            ) {
+              console.debug("[hytde] demo:aOptions", {
+                value: globalThis.hyState?.aOptions ?? null
+              });
+            }
+          });
+          return;
+        }
+        setTimeout(attachStoreLog, 0);
+      };
+      attachStoreLog();
+      init();
+      // end-script
+    </template>
+    <script type="text/plain" id="source-html-template">
+<section class="space-y-5">
+  <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+    <hy-get src="/api/categories" store="aOptions"></hy-get>
+    <h3 class="text-lg font-semibold">Product Drill-down</h3>
+    <p class="mt-1 text-xs text-base-content/60">
+      Select a category to refresh downstream options. Subcategories and items reset and disable while awaiting new data.
+    </p>
+    <div class="mt-4 grid gap-4 md:grid-cols-3">
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Category
+        <select
+          class="select select-bordered text-sm"
+          name="a"
+          hy-get="/api/subcategories/{a}"
+          hy-store="bOptions"
+        >
+          <option value="">(select one)</option>
+          <option hy-for="a of aOptions" hy-attr-value="{a.id}" hy="a.name"></option>
+        </select>
+      </label>
+
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-if="bOptions">
+        Subcategory
+        <select class="select select-bordered text-sm" name="b" hy-get="/api/items/{b}" hy-store="cOptions">
+          <option value="">(select one)</option>
+          <option hy-for="b of bOptions" hy-attr-value="{b.id}" hy="b.name"></option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-else>
+        Subcategory
+        <select class="select select-bordered text-sm" name="b" disabled>
+          <option value="">(select one)</option>
+        </select>
+      </label>
+
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-if="cOptions">
+        Item
+        <select class="select select-bordered text-sm" name="c">
+          <option value="">(select one)</option>
+          <option hy-for="c of cOptions" hy-attr-value="{c.id}" hy="c.name"></option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60" hy-else>
+        Item
+        <select class="select select-bordered text-sm" name="c" disabled>
+          <option value="">(select one)</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="rounded-lg border border-base-300 bg-white/90 p-4 text-xs text-base-content/60 shadow-sm">
+    <p>
+      Reset behavior: updating a dataset clears downstream selections and datasets. Dependent selects stay disabled until
+      new options arrive.
+    </p>
+  </section>
+</section>
+    </script>
+    <script type="text/plain" id="source-json-template">
+{
+  "categories": [
+    { "id": "a1", "name": "Hardware" },
+    { "id": "a2", "name": "Software" },
+    { "id": "a3", "name": "Services" }
+  ],
+  "subcategories": {
+    "a1": [
+      { "id": "b1", "name": "Laptops" },
+      { "id": "b2", "name": "Desktops" }
+    ],
+    "a2": [
+      { "id": "b3", "name": "Apps" },
+      { "id": "b4", "name": "APIs" }
+    ],
+    "a3": [{ "id": "b5", "name": "Support" }]
+  },
+  "items": {
+    "b1": [
+      { "id": "c1", "name": "Ultrabook" },
+      { "id": "c2", "name": "Workstation" }
+    ],
+    "b2": [{ "id": "c3", "name": "Mini PC" }],
+    "b3": [{ "id": "c4", "name": "Calendar" }],
+    "b4": [{ "id": "c5", "name": "Billing" }],
+    "b5": [{ "id": "c6", "name": "Onboarding" }]
+  }
+}
+    </script>
+    <template id="source-cdn-template">
+<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"></script>
+    </template>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

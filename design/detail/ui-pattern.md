@@ -16,8 +16,71 @@ Each item lists relevant HyTDE features and current support status.
 - Status: Supported (action-triggered requests + command sequencing).
 
 ## 4. Drill-down select boxes (cascading clears + reload)
-- Use: `hy-get` for each level, `hy-store`, `hy-for`, `hy-if`, `hy-on`/dynamic behaviors for clearing.
-- Status: Partially supported; cascading reset logic needs a defined pattern or dynamic behavior hook.
+- Use: `hy-get` for each level, `hy-store`, `hy-for`, `hy-if`, `hy-attr-*`.
+- Status: Partially supported; cascading reset needs a defined runtime rule. Template-only disable states are supported.
+
+### 4.1 Pattern
+- A selection in level A triggers a request that refreshes the option dataset for level B.
+- The B request writes to its own namespace (replacement semantics).
+- The B `<select>` renders its options from that namespace via `hy-for`.
+- The same pattern is repeated for B -> C.
+
+### 4.2 Required reset behavior (runtime)
+When the option dataset for a select is replaced by a `hy-store` write, HyTDE MUST:
+1. Reset the select’s value to the empty option (value `""`) if present; otherwise clear the selection.
+2. Emit a `change` event after the reset so downstream action-triggered requests observe the new empty value.
+3. Clear downstream option datasets that depend on the reset value by writing `[]` to their `hy-store` namespaces.
+4. Disable dependent selects while their dataset request is in flight; re-enable after the store write completes.
+
+Dependency inference (v1 rule):
+- A select is considered a **dependency** if a request URL on that select or its associated request element interpolates the upstream value (e.g. `hy-get="/api/cities?bId={filters.b}"`).
+- Downstream option datasets are those rendered from the `hy-store` namespace written by that dependent request.
+- Cycles in the inferred dependency graph MUST be detected and reported as errors; cascade resets are suppressed for cycle members.
+
+### 4.3 Disabled state (template pattern)
+Templates can disable a select when its dataset is empty using `hy-if`/`hy-else`:
+
+```html
+<label>
+  Category
+  <select name="a" hy-get="/api/categories" hy-store="aOptions">
+    <option value="">(select one)</option>
+    <option hy-for="a of aOptions" hy-attr-value="{a.id}" hy="{a.name}"></option>
+  </select>
+</label>
+
+<label hy-if="bOptions">
+  Subcategory
+  <select name="b" hy-get="/api/subcategories?catId={a}" hy-store="bOptions">
+    <option value="">(select one)</option>
+    <option hy-for="b of bOptions" hy-attr-value="{b.id}" hy="{b.name}"></option>
+  </select>
+</label>
+<label hy-else>
+  Subcategory
+  <select name="b" disabled>
+    <option value="">(select one)</option>
+  </select>
+</label>
+
+<label hy-if="cOptions">
+  Item
+  <select name="c" hy-get="/api/items?subId={b}" hy-store="cOptions">
+    <option value="">(select one)</option>
+    <option hy-for="c of cOptions" hy-attr-value="{c.id}" hy="{c.name}"></option>
+  </select>
+</label>
+<label hy-else>
+  Item
+  <select name="c" disabled>
+    <option value="">(select one)</option>
+  </select>
+</label>
+```
+
+Notes:
+- `hy-if` treats an empty array as false, so `bOptions`/`cOptions` can directly drive enable/disable without extra transforms.
+- The empty option is required so reset can land on a stable, valid value across static HTML, runtime, build output, and SSR.
 
 ## 5. Optimistic UI updates
 - Use: action-triggered `<input hy-post>` with optimistic update + rollback on error, `hy.errors`.
@@ -31,9 +94,9 @@ Each item lists relevant HyTDE features and current support status.
 - Use: `<button hy-get ... command=... commandfor=...>`, `hy-store`, `hy-for`, popover element.
 - Status: Supported (action-triggered fetch + command sequencing).
 
-## 8. Autosave (debounced write + status log)
-- Use: `hy-debounce`, `<form hy-post>` or `<input hy-post>`, `hy-store`, status region bound to `hyState`.
-- Status: Partially supported; autosave timing and success log patterns need a defined recipe.
+## 8. Form state (autosave + leave guard)
+- Use: `hy-form-state="mode: autosave-guard; duration: 500"` on form/submit action, form request attribute (`hy-post` etc.), localStorage restore prompt, leave-guard dialog.
+- Status: Supported (spec defined in `design/detail/forms.md`).
 
 ## 9. Locking via stream
 - Use: `<hy-get-stream>` or `<hy-sse>` for lock state, `hy-store`.
@@ -44,5 +107,5 @@ Each item lists relevant HyTDE features and current support status.
 - Status: Not implemented; task ID lifecycle and local persistence are not specified.
 
 ## 11. Async upload (S3 multipart / tus)
-- Use: dynamic behavior component (custom JS island) integrated with `hy.on(...)`.
-- Status: Not implemented; upload queueing, chunking, and storage are outside current runtime spec.
+- Use: `<form hy-async-upload="s3|tus">`, `hy-file-chunksize`, `hy.uploading`, indexedDB + localStorage persistence, JSON submit with finalized file IDs.
+- Status: Not implemented; detailed spec in `design/detail/async-file-uploading.md`.

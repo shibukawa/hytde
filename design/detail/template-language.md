@@ -192,7 +192,8 @@ Some HyTDE attributes (e.g. `hy-get`, `hy-post`, `hy-import src`) accept string 
 
 Example:
 ```html
-<section hy-get="/api/users/{hyParams.userId}" hy-store="current" hy-unwrap="data">
+<hy-get src="/api/users/{hyParams.userId}" store="current" unwrap="data"></hy-get>
+<section>
   ...
 </section>
 ```

@@ -117,7 +117,8 @@
           <div class="card-body gap-3">
             <h2 class="card-title text-lg">Rendered Output</h2>
             <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
-              <section class="space-y-2" hy-get="/api/users/100" hy-store="current">
+              <hy-get src="/api/users/100" store="current"></hy-get>
+              <section class="space-y-2">
                 <p class="text-xs uppercase tracking-wide text-base-content/60">Host content</p>
                 <p class="text-sm">This block is rendered by the host template.</p>
                 <hy-import src="/components/user-card.html"></hy-import>
@@ -152,7 +153,8 @@
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
-<section class="space-y-2" hy-get="/api/users/100" hy-store="current">
+<hy-get src="/api/users/100" store="current"></hy-get>
+<section class="space-y-2">
   <p class="text-xs uppercase tracking-wide text-base-content/60">Host content</p>
   <p class="text-sm">This block is rendered by the host template.</p>
   <hy-import src="/components/user-card.html"></hy-import>

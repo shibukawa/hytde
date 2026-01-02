@@ -10,8 +10,9 @@
     <main>
       <h1>Template Import</h1>
 
-      <section hy-get="/api/users/100" hy-store="current">
-        <!-- hy-get-dummy: { "user": { "id": 100, "name": "Alice", "email": "alice@example.com" } } -->
+      <hy-get src="/api/users/100" store="current"></hy-get>
+      <!-- hy-get-dummy: { "user": { "id": 100, "name": "Alice", "email": "alice@example.com" } } -->
+      <section>
         <p>Host template content starts here.</p>
         <hy-import src="/components/user-card.html"></hy-import>
         <p>Host template content ends here.</p>

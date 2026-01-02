@@ -74,11 +74,12 @@
   - SSR should apply the same initial gating (collects items up to count/timeout before render).
 
 ## Mock Behavior
+- Streaming mocks use the same `meta[name="hy-mock"]` rules defined in `design/detail/fetching.md`, backed by MSW in mock mode.
 - For `hy-get-stream` mock data:
   - If mock result is an array, emit one element every 0.2s.
   - Each emitted element is treated as an individual chunk.
 - For `hy-sse` mock data:
-  - Reuse the existing mock machinery only if an EventSource mock is defined later.
+  - The same array-based mock payload is emitted as sequential SSE messages.
 
 ### Sample Mock JSON (root array)
 ```json

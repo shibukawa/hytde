@@ -1,12 +1,18 @@
 {
   "data": {
     "meta": {
-      "generatedAt": "2025-12-01T10:30:00Z"
+      "generatedAt": "2026-01-02T09:00:00Z"
     },
     "users": [
-      { "id": 100, "name": "Alice" },
-      { "id": 101, "name": "Bob" },
-      { "id": 102, "name": "Carol" }
+      { "id": 100, "name": "Alice", "email": "alice@example.com", "status": "active" },
+      { "id": 101, "name": "Alicia", "email": "alicia@example.com", "status": "inactive" },
+      { "id": 102, "name": "Alan", "email": "alan@example.com", "status": "active" },
+      { "id": 103, "name": "Bob", "email": "bob@example.com", "status": "inactive" },
+      { "id": 104, "name": "Bella", "email": "bella@example.com", "status": "active" },
+      { "id": 105, "name": "Ben", "email": "ben@example.com", "status": "inactive" },
+      { "id": 106, "name": "Carol", "email": "carol@example.com", "status": "active" },
+      { "id": 107, "name": "Carlos", "email": "carlos@example.com", "status": "inactive" },
+      { "id": 108, "name": "Casey", "email": "casey@example.com", "status": "active" }
     ]
   }
 }

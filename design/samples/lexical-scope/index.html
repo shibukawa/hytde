@@ -18,7 +18,8 @@
 
         Note: `hy-get` does not introduce implicit variables. Data must be stored explicitly via `hy-store`.
       -->
-      <section hy-get="/api/orgs/{hyParams.orgId}/users" hy-store="current">
+      <hy-get src="/api/orgs/{hyParams.orgId}/users" store="current"></hy-get>
+      <section>
         <!-- Example response: { "org": { "name": "Acme" }, "users": [{ "id": 1, "name": "Alice" }] } -->
         <h2>
           <span>Org:</span>

@@ -1,0 +1,189 @@
+import { createRuntime, initHyPathParams } from "@hytde/runtime";
+import { parseDocument, parseHtml, parseSubtree, resolveImports } from "@hytde/parser";
+
+const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
+const LOG_BUFFER_KEY = "__hytdeLogBuffer";
+const MSW_STATE_KEY = "__hytdeMswState";
+
+type HyLogEntry = {
+  type: "render" | "request" | "error" | "info";
+  message: string;
+  detail?: Record<string, unknown>;
+  timestamp: number;
+};
+
+type HyError = {
+  type: "request" | "transform" | "syntax" | "data";
+  message: string;
+  detail?: Record<string, unknown>;
+  timestamp: number;
+};
+
+type HyLogState = {
+  [LOG_CALLBACK_KEY]?: Array<(entry: HyLogEntry) => void>;
+  [LOG_BUFFER_KEY]?: HyLogEntry[];
+  [MSW_STATE_KEY]?: { start?: (mode: "production" | "mock" | "disable") => Promise<void> | void; started?: boolean };
+  __hytdeRegisterMswMetaHandlers?: (rules: unknown[], doc: Document) => Promise<void>;
+  mockServiceWorker?: (...args: unknown[]) => void | Promise<void>;
+};
+
+export async function init(root?: Document | HTMLElement): Promise<void> {
+  const doc = resolveDocument(root);
+  if (!doc) {
+    return;
+  }
+  if (typeof console !== "undefined") {
+    console.debug("[hytde] runtime:init", { url: doc.URL });
+  }
+
+  initHyPathParams(doc);
+  const runtime = createRuntime({ parseDocument, parseSubtree });
+  const importLogs: HyLogEntry[] = [];
+  const errors = await resolveImports(doc, {
+    onLog: (entry) => {
+      importLogs.push(entry);
+    }
+  });
+  const parsed = parseDocument(doc);
+  if (typeof console !== "undefined") {
+    console.debug("[hytde] runtime:parsed", {
+      mode: parsed.executionMode,
+      mockRules: parsed.mockRules.length,
+      requestTargets: parsed.requestTargets.length
+    });
+  }
+  const parseErrors = Array.isArray(parsed.parseErrors) ? parsed.parseErrors : [];
+  if (parseErrors.length > 0) {
+    const hy = ensureHy(doc.defaultView ?? globalThis);
+    const nextErrors: HyError[] = parseErrors.map((error) => ({
+      type: "syntax",
+      message: error.message,
+      detail: error.detail,
+      timestamp: Date.now()
+    }));
+    hy.errors = [...hy.errors, ...nextErrors];
+    if (typeof console !== "undefined") {
+      for (const error of parseErrors) {
+        console.error("[hytde] parse error", error.message, error.detail);
+      }
+    }
+  }
+  await registerMetaMockHandlers(doc, parsed);
+  await startMockServiceWorkerIfNeeded(doc, parsed.executionMode);
+  runtime.init(parsed);
+  if (errors.length > 0) {
+    const hy = (doc.defaultView ?? globalThis).hy;
+    if (hy && Array.isArray(hy.errors)) {
+      const nextErrors: HyError[] = errors.map((error) => ({
+        type: "request",
+        message: error.message,
+        detail: {
+          url: error.url,
+          method: error.method
+        },
+        timestamp: Date.now()
+      }));
+      hy.errors = [...hy.errors, ...nextErrors];
+    }
+    if (typeof console !== "undefined") {
+      for (const error of errors) {
+        console.error("[hytde] import error", error);
+      }
+    }
+  }
+  if (importLogs.length > 0) {
+    emitBufferedLogs(doc.defaultView ?? globalThis, importLogs);
+  }
+}
+
+export const hy = {
+  init,
+  parseHtml,
+  parseDocument
+};
+
+export { parseHtml, parseDocument, parseSubtree };
+
+async function startMockServiceWorkerIfNeeded(
+  doc: Document,
+  executionMode: "production" | "mock" | "disable"
+): Promise<void> {
+  const scope = doc.defaultView ?? globalThis;
+  const hy = ensureHy(scope) as HyLogState;
+  const mswState = hy[MSW_STATE_KEY];
+  const start = mswState?.start;
+  if (typeof start === "function") {
+    await start(executionMode);
+  }
+  if (executionMode === "mock" && !mswState?.started) {
+    const error = {
+      type: "request",
+      message: "Mocking requires MSW, but the service worker did not start.",
+      detail: { mode: executionMode },
+      timestamp: Date.now()
+    };
+    const errorTarget = hy as HyLogState & { errors?: unknown[] };
+    if (Array.isArray(errorTarget.errors)) {
+      errorTarget.errors = [...errorTarget.errors, error];
+    }
+    if (typeof console !== "undefined") {
+      console.error("[hytde] MSW failed to start; mocks are disabled.");
+    }
+  }
+}
+
+async function registerMetaMockHandlers(doc: Document, parsed: { executionMode: string; mockRules: unknown[] }): Promise<void> {
+  if (parsed.executionMode !== "mock") {
+    return;
+  }
+  const scope = doc.defaultView ?? globalThis;
+  const hy = ensureHy(scope) as HyLogState & {
+    __hytdeRegisterMswMetaHandlers?: (rules: unknown[], doc: Document) => Promise<void>;
+  };
+  const register = hy.__hytdeRegisterMswMetaHandlers;
+  if (typeof register === "function") {
+    await register(parsed.mockRules, doc);
+  }
+}
+
+function resolveDocument(root?: Document | HTMLElement): Document | null {
+  if (!root) {
+    return typeof document === "undefined" ? null : document;
+  }
+
+  if (root instanceof Document) {
+    return root;
+  }
+
+  return root.ownerDocument;
+}
+
+function emitBufferedLogs(scope: typeof globalThis, entries: HyLogEntry[]): void {
+  const hy = ensureHy(scope) as HyLogState;
+  const callbacks = hy[LOG_CALLBACK_KEY];
+  if (Array.isArray(callbacks)) {
+    for (const entry of entries) {
+      for (const callback of callbacks) {
+        try {
+          callback(entry);
+        } catch (error) {
+          if (typeof console !== "undefined") {
+            console.error("[hytde] log callback error", error);
+          }
+        }
+      }
+    }
+    return;
+  }
+  if (!Array.isArray(hy[LOG_BUFFER_KEY])) {
+    hy[LOG_BUFFER_KEY] = [];
+  }
+  (hy[LOG_BUFFER_KEY] as HyLogEntry[]).push(...entries);
+}
+
+function ensureHy(scope: typeof globalThis): HyLogState & { loading: boolean; errors: unknown[] } {
+  if (!scope.hy) {
+    scope.hy = { loading: false, errors: [] };
+  }
+  return scope.hy as HyLogState & { loading: boolean; errors: unknown[] };
+}

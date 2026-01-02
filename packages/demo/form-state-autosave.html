@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="hy-mode" content="mock" />
-    <meta name="hy-mock" content="pattern=/api/users/register path=/mocks/register.json method=POST status=201" />
-    <title>⭐️HyTDE Register Form</title>
+    <meta name="hy-mock" content="pattern=/api/profile/update path=/mocks/profile-update.json method=POST status=200" />
+    <title>⭐️HyTDE Form State (Autosave + Guard)</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -36,10 +36,10 @@
       <header class="mb-4 flex flex-col gap-2">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 class="text-3xl font-semibold">⭐️HyTDE Register Form</h1>
-            <p class="text-sm opacity-70">Registration flow with redirect after submit.</p>
+            <h1 class="text-3xl font-semibold">⭐️HyTDE Form State</h1>
+            <p class="text-sm opacity-70">Autosave to localStorage + leave guard with restore prompt.</p>
           </div>
-          <div class="badge badge-outline">Step 4</div>
+          <div class="badge badge-outline">Form State</div>
         </div>
       </header>
 
@@ -50,7 +50,7 @@
               <h2 class="card-title text-lg">Source</h2>
               <div role="tablist" class="tabs tabs-boxed">
                 <button class="tab tab-active" data-tab="html" type="button">HTML</button>
-                <button class="tab" data-tab="json" type="button">JSON (Mocks)</button>
+                <button class="tab" data-tab="json" type="button">JSON (Mock)</button>
               </div>
             </div>
             <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
@@ -110,57 +110,57 @@
             <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
               <section class="space-y-6">
                 <form
-                  id="register-form"
+                  id="profile-form"
                   class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
-                  hy-redirect="/registered.html"
+                  hy-form-state="mode: autosave-guard; duration: 500"
+                  hy-post="/api/profile/update"
+                  hy-store="result"
                 >
-                  <h3 class="text-lg font-semibold">Register Account</h3>
-                  <p class="mt-1 text-xs text-base-content/60">Fields marked required must be valid.</p>
+                  <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 class="text-lg font-semibold">Profile Draft</h3>
+                      <p class="mt-1 text-xs text-base-content/60">
+                        Drafts are stored in localStorage and restored after reload. Leaving with unsent changes shows a guard.
+                      </p>
+                    </div>
+                    <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                  </div>
                   <div class="mt-4 grid gap-3 md:grid-cols-2">
                     <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
                       Full Name
-                      <input class="input input-bordered w-full text-sm peer" name="fullName" required type="text" />
-                      <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
+                      <input class="input input-bordered text-sm" name="name" placeholder="Jane Doe" />
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Title
+                      <input class="input input-bordered text-sm" name="title" placeholder="Product Manager" />
                     </label>
                     <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
                       Email
-                      <input class="input input-bordered w-full text-sm peer" name="email" required type="email" />
-                      <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
+                      <input class="input input-bordered text-sm" type="email" name="email" placeholder="jane@example.com" />
                     </label>
                     <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-                      Age
-                      <input class="input input-bordered w-full text-sm" name="age" min="18" type="number" />
-                      <span class="text-xs font-normal normal-case text-base-content/40">Optional.</span>
-                    </label>
-                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-                      Plan
-                      <select class="select select-bordered text-sm peer" name="plan" required>
-                        <option value="" disabled selected>Select plan</option>
-                        <option value="starter">Starter</option>
-                        <option value="pro">Pro</option>
-                        <option value="enterprise">Enterprise</option>
+                      Region
+                      <select class="select select-bordered text-sm" name="region">
+                        <option value="">Select</option>
+                        <option value="apac">APAC</option>
+                        <option value="emea">EMEA</option>
+                        <option value="amer">Americas</option>
                       </select>
-                      <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
                     </label>
                   </div>
-                  <label class="mt-3 flex items-center gap-2 text-sm">
-                    <input class="checkbox" name="newsletter" type="checkbox" value="true" />
-                    Subscribe to updates
-                    <span class="text-xs text-base-content/40">Optional.</span>
+                  <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                    Notes
+                    <textarea class="textarea textarea-bordered text-sm" name="notes" rows="3" placeholder="Team updates..."></textarea>
                   </label>
-                  <div class="mt-2 flex items-center gap-2 text-sm">
-                    <input class="checkbox peer" name="terms" type="checkbox" required />
-                    <span>I agree to the terms</span>
-                    <span class="text-xs text-base-content/40 peer-invalid:text-red-500">Required.</span>
-                  </div>
-                  <button
-                    class="btn btn-primary btn-sm mt-4"
-                    type="submit"
-                    hy-post="/api/users/register"
-                  >
-                    Create Account
-                  </button>
                 </form>
+
+                <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+                  <h4 class="text-sm font-semibold">Last Save</h4>
+                  <p class="mt-2 text-sm" hy-if="result.savedAt">
+                    Saved at <time hy="result.savedAt |> date('yyyy-MM-dd HH:mm')">2025-12-01 11:10</time>.
+                  </p>
+                  <p class="mt-2 text-sm opacity-70" hy-else>Submit the form to clear the draft.</p>
+                </section>
               </section>
             </div>
           </div>
@@ -193,57 +193,57 @@
     <script type="text/plain" id="source-html-template">
 <section class="space-y-6">
   <form
-    id="register-form"
+    id="profile-form"
     class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
-    hy-redirect="/registered.html"
+    hy-form-state="mode: autosave-guard; duration: 500"
+    hy-post="/api/profile/update"
+    hy-store="result"
   >
-    <h3 class="text-lg font-semibold">Register Account</h3>
-    <p class="mt-1 text-xs text-base-content/60">Fields marked required must be valid.</p>
+    <div class="flex flex-wrap items-start justify-between gap-2">
+      <div>
+        <h3 class="text-lg font-semibold">Profile Draft</h3>
+        <p class="mt-1 text-xs text-base-content/60">
+          Drafts are stored in localStorage and restored after reload. Leaving with unsent changes shows a guard.
+        </p>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+    </div>
     <div class="mt-4 grid gap-3 md:grid-cols-2">
       <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
         Full Name
-        <input class="input input-bordered w-full text-sm peer" name="fullName" required type="text" />
-        <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
+        <input class="input input-bordered text-sm" name="name" placeholder="Jane Doe" />
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Title
+        <input class="input input-bordered text-sm" name="title" placeholder="Product Manager" />
       </label>
       <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
         Email
-        <input class="input input-bordered w-full text-sm peer" name="email" required type="email" />
-        <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
+        <input class="input input-bordered text-sm" type="email" name="email" placeholder="jane@example.com" />
       </label>
       <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-        Age
-        <input class="input input-bordered w-full text-sm" name="age" min="18" type="number" />
-        <span class="text-xs font-normal normal-case text-base-content/40">Optional.</span>
-      </label>
-      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-        Plan
-        <select class="select select-bordered text-sm peer" name="plan" required>
-          <option value="" disabled selected>Select plan</option>
-          <option value="starter">Starter</option>
-          <option value="pro">Pro</option>
-          <option value="enterprise">Enterprise</option>
+        Region
+        <select class="select select-bordered text-sm" name="region">
+          <option value="">Select</option>
+          <option value="apac">APAC</option>
+          <option value="emea">EMEA</option>
+          <option value="amer">Americas</option>
         </select>
-        <span class="text-xs font-normal normal-case text-base-content/40 peer-invalid:text-red-500">Required.</span>
       </label>
     </div>
-    <label class="mt-3 flex items-center gap-2 text-sm">
-      <input class="checkbox" name="newsletter" type="checkbox" value="true" />
-      Subscribe to updates
-      <span class="text-xs text-base-content/40">Optional.</span>
+    <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+      Notes
+      <textarea class="textarea textarea-bordered text-sm" name="notes" rows="3" placeholder="Team updates..."></textarea>
     </label>
-    <div class="mt-2 flex items-center gap-2 text-sm">
-      <input class="checkbox peer" name="terms" type="checkbox" required />
-      <span>I agree to the terms</span>
-      <span class="text-xs text-base-content/40 peer-invalid:text-red-500">Required.</span>
-    </div>
-    <button
-      class="btn btn-primary btn-sm mt-4"
-      type="submit"
-      hy-post="/api/users/register"
-    >
-      Create Account
-    </button>
   </form>
+
+  <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+    <h4 class="text-sm font-semibold">Last Save</h4>
+    <p class="mt-2 text-sm" hy-if="result.savedAt">
+      Saved at <time hy="result.savedAt |> date('yyyy-MM-dd HH:mm')">2025-12-01 11:10</time>.
+    </p>
+    <p class="mt-2 text-sm opacity-70" hy-else>Submit the form to clear the draft.</p>
+  </section>
 </section>
     </script>
     <script type="text/plain" id="source-json-template" data-source="mock"></script>

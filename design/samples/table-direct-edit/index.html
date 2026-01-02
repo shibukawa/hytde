@@ -21,7 +21,8 @@
         - This sample uses `hy.on("table-edit", ...)` (delta-only).
         - A future `table-edit-all` could deliver the full dataset instead (see design/table.md).
       -->
-      <section hy-get="/api/departments" hy-store="current" hy-unwrap="data">
+      <hy-get src="/api/departments" store="current" unwrap="data"></hy-get>
+      <section>
         <!-- Example response: { "departments": [{ "id": "d001", "name": "Sales", "manager": "Alice" }] } -->
 
         <table
@@ -88,4 +89,3 @@
     </script>
   </body>
 </html>
-

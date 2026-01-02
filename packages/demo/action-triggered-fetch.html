@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="hy-mode" content="mock" />
     <meta name="hy-mock" content="pattern=/api/notifications path=/mocks/notifications.json" />
-    <meta name="hy-mock" content="pattern=/api/users/lookup path=/mocks/user-suggestions.json" />
     <meta name="hy-mock" content="pattern=/api/profile/title path=/mocks/profile-update.json method=POST" />
     <meta name="hy-mock" content="pattern=/api/profile/name path=/mocks/user-error.json method=POST status=422" />
     <title>⭐️HyTDE Action-Triggered Fetch</title>
@@ -129,6 +128,7 @@
                   <div class="relative mt-3 inline-flex flex-col items-end">
                     <button
                       class="btn btn-primary"
+                      type="button"
                       hy-get="/api/notifications"
                       hy-store="notifications"
                       command="show-popover"
@@ -162,15 +162,16 @@
                 <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
                   <h3 class="text-lg font-semibold">Live Lookup</h3>
                   <p class="text-xs text-base-content/60">
-                    Input-triggered GET with debounce + popover command after render.
+                    Input-triggered GET with debounce + popover command after render. Prefix match via MSW.
                   </p>
                   <div class="relative mt-3 flex flex-wrap gap-3">
                     <label class="flex flex-1 flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
                       Assignee
                       <input
                         class="input input-bordered w-full text-sm"
+                        name="assignee"
                         placeholder="Type a name"
-                        hy-get="/api/users/lookup?name=[value]"
+                        hy-get="/api/users/lookup/[value]"
                         hy-debounce="250"
                         hy-store="suggestions"
                         command="show-popover"
@@ -187,7 +188,14 @@
                       <ul class="mt-2 space-y-2">
                         <li hy-dummy class="rounded-md border border-base-200 bg-base-50 p-2">Dummy result</li>
                         <li hy-for="s of suggestions.items" class="rounded-md border border-base-200 bg-base-50 p-2">
-                          <button type="button" class="btn btn-ghost btn-xs" hy="s.name"></button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            hy="s.name"
+                            hy-fill="input[name='assignee']"
+                            command="hide-popover"
+                            commandfor="completion-popover"
+                          ></button>
                         </li>
                       </ul>
                     </div>
@@ -242,14 +250,74 @@
         </article>
       </section>
     </main>
+    <script type="module" hy-debug>
+      import { http, HttpResponse } from "msw";
+      import "@hytde/standalone/debug-api";
+      // start-script
+      const baseSuggestions = [
+        { id: 1, name: "Alice" },
+        { id: 2, name: "Alicia" },
+        { id: 3, name: "Alonzo" },
+        { id: 4, name: "Bob" },
+        { id: 5, name: "Boris" },
+        { id: 6, name: "Bonnie" },
+        { id: 7, name: "Carol" },
+        { id: 8, name: "Caroline" },
+        { id: 9, name: "Carter" }
+      ];
+      const filterSuggestions = (query) => {
+        const needle = query.trim().toLowerCase();
+        if (!needle) {
+          return [];
+        }
+        return baseSuggestions.filter((item) => item.name.toLowerCase().startsWith(needle));
+      };
+
+      globalThis.hy?.mockServiceWorker?.(
+        http.get("/api/users/lookup/", () => HttpResponse.json({ items: [] })),
+        http.get("/api/users/lookup/:query", ({ params }) => {
+          const query = String(params.query ?? "");
+          return HttpResponse.json({ items: filterSuggestions(query) });
+        })
+      );
+      // end-script
+    </script>
     <script type="module">
       import { init } from "@hytde/standalone";
-      // start-script
+
       init();
-      // end-script
     </script>
     <template id="source-inline-script">
       // start-script
+      // mock registration (hy-debug script)
+      import "@hytde/standalone/debug-api";
+      const baseSuggestions = [
+        { id: 1, name: "Alice" },
+        { id: 2, name: "Alicia" },
+        { id: 3, name: "Alonzo" },
+        { id: 4, name: "Bob" },
+        { id: 5, name: "Boris" },
+        { id: 6, name: "Bonnie" },
+        { id: 7, name: "Carol" },
+        { id: 8, name: "Caroline" },
+        { id: 9, name: "Carter" }
+      ];
+      const filterSuggestions = (query) => {
+        const needle = query.trim().toLowerCase();
+        if (!needle) {
+          return [];
+        }
+        return baseSuggestions.filter((item) => item.name.toLowerCase().startsWith(needle));
+      };
+
+      globalThis.hy.mockServiceWorker(
+        http.get("/api/users/lookup/", () => HttpResponse.json({ items: [] })),
+        http.get("/api/users/lookup/:query", ({ params }) => {
+          const query = String(params.query ?? "");
+          return HttpResponse.json({ items: filterSuggestions(query) });
+        })
+      );
+      // init script
       init();
       // end-script
     </template>
@@ -265,11 +333,12 @@
       </div>
     </div>
     <div class="relative mt-3 inline-flex flex-col items-end">
-      <button
-        class="btn btn-primary"
-        hy-get="/api/notifications"
-        hy-store="notifications"
-        command="show-popover"
+    <button
+      class="btn btn-primary"
+      type="button"
+      hy-get="/api/notifications"
+      hy-store="notifications"
+      command="show-popover"
         commandfor="notification-popover"
         popovertarget="notification-popover"
         data-demo-popover-anchor="notification-popover"
@@ -297,15 +366,16 @@
   <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
     <h3 class="text-lg font-semibold">Live Lookup</h3>
     <p class="text-xs text-base-content/60">
-      Input-triggered GET with debounce + popover command after render.
+      Input-triggered GET with debounce + popover command after render. Prefix match via MSW.
     </p>
     <div class="relative mt-3 flex flex-wrap gap-3">
       <label class="flex flex-1 flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
         Assignee
         <input
           class="input input-bordered w-full text-sm"
+          name="assignee"
           placeholder="Type a name"
-          hy-get="/api/users/lookup?name=[value]"
+          hy-get="/api/users/lookup/[value]"
           hy-debounce="250"
           hy-store="suggestions"
           command="show-popover"
@@ -321,12 +391,19 @@
         <p class="text-xs uppercase tracking-wide text-base-content/60">Suggestions</p>
         <ul class="mt-2 space-y-2">
           <li hy-dummy class="rounded-md border border-base-200 bg-base-50 p-2">Dummy result</li>
-          <li hy-for="s of suggestions.items" class="rounded-md border border-base-200 bg-base-50 p-2">
-            <button type="button" class="btn btn-ghost btn-xs" hy="s.name"></button>
-          </li>
-        </ul>
-      </div>
+        <li hy-for="s of suggestions.items" class="rounded-md border border-base-200 bg-base-50 p-2">
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            hy="s.name"
+            hy-fill="input[name='assignee']"
+            command="hide-popover"
+            commandfor="completion-popover"
+          ></button>
+        </li>
+      </ul>
     </div>
+  </div>
   </section>
 
   <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">

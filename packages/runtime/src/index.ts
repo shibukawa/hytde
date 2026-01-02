@@ -115,6 +115,8 @@ export interface ParsedRequestTarget {
   trigger: "startup" | "submit" | "action";
   form: HTMLFormElement | null;
   fillInto: string | null;
+  fillTarget: string | null;
+  fillValue: string | null;
 }
 
 export interface ParsedFillTarget {
@@ -122,6 +124,14 @@ export interface ParsedFillTarget {
   selector: string;
 }
 
+export interface ParsedFillAction {
+  element: Element;
+  selector: string;
+  value: string | null;
+  form: HTMLFormElement | null;
+  command: string | null;
+  commandFor: string | null;
+}
 
 export interface ParsedTextBinding {
   element: Element;
@@ -135,8 +145,15 @@ export interface ParsedAttrBinding {
   template: string;
 }
 
+export interface ParsedIfChainNode {
+  node: Element;
+  kind: "if" | "else-if" | "else";
+  expression: string | null;
+}
+
 export interface ParsedIfChain {
-  nodes: Element[];
+  anchor: Comment;
+  nodes: ParsedIfChainNode[];
 }
 
 export interface ParsedSubtree {
@@ -147,12 +164,14 @@ export interface ParsedSubtree {
   textBindings: ParsedTextBinding[];
   attrBindings: ParsedAttrBinding[];
   fillTargets: ParsedFillTarget[];
+  fillActions: ParsedFillAction[];
 }
 
 export interface ParsedDocument extends ParsedSubtree {
   doc: Document;
   executionMode: "production" | "mock" | "disable";
   mockRules: MockRule[];
+  parseErrors: Array<{ message: string; detail?: Record<string, unknown> }>;
   requestTargets: ParsedRequestTarget[];
   handlesErrors: boolean;
   hasErrorPopover: boolean;
@@ -167,8 +186,10 @@ interface RuntimeState {
   doc: Document;
   globals: RuntimeGlobals;
   mockRules: MockRule[];
+  useMswMock: boolean;
   parsed: ParsedDocument;
   parser: ParserAdapter;
+  cascade: CascadeState;
   bootstrapPending: boolean;
   plugins: PluginRegistration[];
   pluginsInitialized: boolean;
@@ -182,11 +203,16 @@ interface RuntimeState {
   pollingTimers: Map<ParsedRequestTarget, number>;
   pollingMockQueues: Map<ParsedRequestTarget, { items: unknown[]; index: number }>;
   streamStores: string[];
-  requestCache: Map<string, Promise<unknown>>;
+  requestCache: Map<string, { promise: Promise<void>; payload: unknown; payloadSet: boolean }>;
   requestCounter: number;
   pendingRequests: number;
   formListeners: WeakSet<HTMLFormElement>;
   formTargets: Map<HTMLFormElement, ParsedRequestTarget>;
+  submitterTargets: Map<Element, ParsedRequestTarget>;
+  formStateContexts: Map<HTMLFormElement, FormStateContext>;
+  formStateListeners: WeakSet<HTMLFormElement>;
+  fillActionListeners: WeakSet<Element>;
+  fillActionData: WeakMap<Element, ParsedFillAction>;
   autoSubmitListeners: WeakSet<HTMLFormElement>;
   autoSubmitState: WeakMap<HTMLFormElement, AutoSubmitState>;
   inFlightForms: WeakSet<HTMLFormElement>;
@@ -206,7 +232,23 @@ interface RuntimeState {
   pathDiagnosticsEmitted: boolean;
   missingPathParams: Set<string>;
   navListenerAttached: boolean;
+  formStateNavListenerAttached: boolean;
 }
+
+type CascadeDisabledState = {
+  prevDisabled: boolean;
+  prevAriaBusy: string | null;
+};
+
+type CascadeState = {
+  storeToSelects: Map<string, Set<HTMLSelectElement>>;
+  selectToStores: Map<HTMLSelectElement, Set<string>>;
+  selectIds: WeakMap<HTMLSelectElement, string>;
+  cycleSelects: WeakSet<HTMLSelectElement>;
+  cycleLogs: Set<string>;
+  disabledState: WeakMap<HTMLSelectElement, CascadeDisabledState>;
+  actionSkip: WeakSet<HTMLSelectElement>;
+};
 
 interface ErrorUiState {
   toast: HTMLDivElement;
@@ -258,7 +300,32 @@ interface AutoSubmitState {
   pendingComposition: boolean;
 }
 
+type FormStateMode = "autosave-guard" | "autosave" | "guard" | "off";
+
+interface FormStateDeclaration {
+  mode: FormStateMode;
+  durationMs: number;
+  raw: string;
+}
+
+interface FormStateContext {
+  form: HTMLFormElement;
+  owner: HTMLElement;
+  ownerId: string | null;
+  mode: FormStateMode;
+  autosaveDelayMs: number;
+  autosaveEnabled: boolean;
+  dirty: boolean;
+  hasDraft: boolean;
+  lastCommittedJson: string | null;
+  autosaveTimer: number | null;
+  fileWarningEmitted: boolean;
+}
+
 const TRANSFORM_TYPES: JsonScalarType[] = ["string", "number", "boolean", "null"];
+const DEFAULT_AUTOSAVE_DELAY_MS = 500;
+const MSW_STATE_KEY = "__hytdeMswState";
+const MOCK_DISABLED_KEY = "__hytdeMockDisabled";
 
 const globalScope = typeof globalThis !== "undefined" ? globalThis : undefined;
 if (globalScope) {
@@ -280,7 +347,8 @@ export function createRuntime(parser: ParserAdapter): Runtime {
       }
 
       const state = getRuntimeState(doc, globals, parsed, parser);
-      state.mockRules = parsed.executionMode === "mock" ? parsed.mockRules : [];
+      void isMockDisabled;
+      state.mockRules = [];
       setupPlugins(state);
       syncHyPathParams(state);
       emitPathDiagnostics(state);
@@ -405,10 +473,13 @@ function getRuntimeState(
   parser: ParserAdapter
 ): RuntimeState {
   const existing = runtimeStates.get(doc);
+  const useMswMock = detectMswMock(globals);
   if (existing) {
     existing.globals = globals;
     existing.parsed = parsed;
     existing.parser = parser;
+    existing.cascade = buildCascadeState(existing, parsed);
+    existing.useMswMock = useMswMock;
     return existing;
   }
 
@@ -423,8 +494,18 @@ function getRuntimeState(
     doc,
     globals,
     mockRules: [],
+    useMswMock,
     parsed,
     parser,
+    cascade: {
+      storeToSelects: new Map(),
+      selectToStores: new Map(),
+      selectIds: new WeakMap(),
+      cycleSelects: new WeakSet(),
+      cycleLogs: new Set(),
+      disabledState: new WeakMap(),
+      actionSkip: new WeakSet()
+    },
     bootstrapPending: false,
     plugins: [],
     pluginsInitialized: false,
@@ -443,6 +524,11 @@ function getRuntimeState(
     pendingRequests: 0,
     formListeners: new WeakSet(),
     formTargets: new Map(),
+    submitterTargets: new Map(),
+    formStateContexts: new Map(),
+    formStateListeners: new WeakSet(),
+    fillActionListeners: new WeakSet(),
+    fillActionData: new WeakMap(),
     autoSubmitListeners: new WeakSet(),
     autoSubmitState: new WeakMap(),
     inFlightForms: new WeakSet(),
@@ -461,11 +547,194 @@ function getRuntimeState(
     pathDiagnostics: null,
     pathDiagnosticsEmitted: false,
     missingPathParams: new Set(),
-    navListenerAttached: false
+    navListenerAttached: false,
+    formStateNavListenerAttached: false
   };
 
+  state.cascade = buildCascadeState(state, parsed);
   runtimeStates.set(doc, state);
   return state;
+}
+
+function detectMswMock(globals: RuntimeGlobals): boolean {
+  const hy = globals.hy as HyGlobals & Record<string, unknown>;
+  const state = hy ? (hy[MSW_STATE_KEY] as { started?: boolean } | undefined) : undefined;
+  return Boolean(state && state.started);
+}
+
+function isMockDisabled(globals: RuntimeGlobals): boolean {
+  void globals;
+  return false;
+}
+
+function buildCascadeState(state: RuntimeState | null, parsed: ParsedDocument): CascadeState {
+  const storeToSelects = new Map<string, Set<HTMLSelectElement>>();
+  const selectToStores = new Map<HTMLSelectElement, Set<string>>();
+  const selectIds = new WeakMap<HTMLSelectElement, string>();
+  const cycleSelects = new WeakSet<HTMLSelectElement>();
+  const cycleLogs = new Set<string>();
+  const disabledState = new WeakMap<HTMLSelectElement, CascadeDisabledState>();
+  const actionSkip = new WeakSet<HTMLSelectElement>();
+  let anonymousIndex = 0;
+
+  const registerSelect = (select: HTMLSelectElement): void => {
+    if (selectIds.has(select)) {
+      return;
+    }
+    const name = select.name?.trim();
+    const id = select.id?.trim();
+    if (name) {
+      selectIds.set(select, name);
+    } else if (id) {
+      selectIds.set(select, `#${id}`);
+    } else {
+      anonymousIndex += 1;
+      selectIds.set(select, `select-${anonymousIndex}`);
+    }
+  };
+
+  for (const template of parsed.forTemplates) {
+    const element = template.template;
+    if (element.tagName !== "OPTION") {
+      continue;
+    }
+    const parent = template.marker.parentNode;
+    if (!(parent instanceof HTMLSelectElement)) {
+      continue;
+    }
+    const tokens = parseSelectorTokens(template.selector);
+    const root = typeof tokens[0] === "string" ? tokens[0] : null;
+    if (!root) {
+      continue;
+    }
+    registerSelect(parent);
+    const existing = storeToSelects.get(root);
+    if (existing) {
+      existing.add(parent);
+    } else {
+      storeToSelects.set(root, new Set([parent]));
+    }
+  }
+
+  for (const target of parsed.requestTargets) {
+    if (!(target.element instanceof HTMLSelectElement)) {
+      continue;
+    }
+    if (!target.store) {
+      continue;
+    }
+    registerSelect(target.element);
+    const existing = selectToStores.get(target.element);
+    if (existing) {
+      existing.add(target.store);
+    } else {
+      selectToStores.set(target.element, new Set([target.store]));
+    }
+  }
+
+  const edges = new Map<HTMLSelectElement, Set<HTMLSelectElement>>();
+  for (const [select, stores] of selectToStores.entries()) {
+    for (const store of stores) {
+      const downstream = storeToSelects.get(store);
+      if (!downstream) {
+        continue;
+      }
+      for (const next of downstream) {
+        const existing = edges.get(select);
+        if (existing) {
+          existing.add(next);
+        } else {
+          edges.set(select, new Set([next]));
+        }
+      }
+    }
+  }
+
+  const cycles = detectCascadeCycles(edges, selectIds, cycleSelects);
+  if (state && cycles.length > 0) {
+    emitCascadeCycleDiagnostics(state, cycles, cycleLogs);
+  }
+
+  return {
+    storeToSelects,
+    selectToStores,
+    selectIds,
+    cycleSelects,
+    cycleLogs,
+    disabledState,
+    actionSkip
+  };
+}
+
+function detectCascadeCycles(
+  edges: Map<HTMLSelectElement, Set<HTMLSelectElement>>,
+  selectIds: WeakMap<HTMLSelectElement, string>,
+  cycleSelects: WeakSet<HTMLSelectElement>
+): string[] {
+  const visiting = new Set<HTMLSelectElement>();
+  const visited = new Set<HTMLSelectElement>();
+  const path: HTMLSelectElement[] = [];
+  const cycles: string[] = [];
+
+  const labelFor = (select: HTMLSelectElement): string => {
+    return selectIds.get(select) ?? "select";
+  };
+
+  const recordCycle = (startIndex: number): void => {
+    const slice = path.slice(startIndex);
+    for (const node of slice) {
+      cycleSelects.add(node);
+    }
+    if (slice.length === 0) {
+      return;
+    }
+    const names = slice.map(labelFor);
+    names.push(labelFor(slice[0]));
+    cycles.push(names.join(" -> "));
+  };
+
+  const dfs = (select: HTMLSelectElement): void => {
+    if (visiting.has(select)) {
+      const startIndex = path.indexOf(select);
+      if (startIndex >= 0) {
+        recordCycle(startIndex);
+      }
+      return;
+    }
+    if (visited.has(select)) {
+      return;
+    }
+    visiting.add(select);
+    path.push(select);
+    for (const next of edges.get(select) ?? []) {
+      dfs(next);
+    }
+    path.pop();
+    visiting.delete(select);
+    visited.add(select);
+  };
+
+  for (const select of edges.keys()) {
+    dfs(select);
+  }
+
+  return cycles;
+}
+
+function emitCascadeCycleDiagnostics(state: RuntimeState, cycles: string[], cycleLogs: Set<string>): void {
+  for (const cycle of cycles) {
+    if (cycleLogs.has(cycle)) {
+      continue;
+    }
+    cycleLogs.add(cycle);
+    emitLog(state, {
+      type: "error",
+      message: "cascade:cycle",
+      detail: { cycle },
+      timestamp: Date.now()
+    });
+    pushError(state, createHyError("data", "Cascade dependency cycle detected", { cycle }));
+  }
 }
 
 function buildPluginContext(
@@ -510,6 +779,9 @@ function runPluginRender(state: RuntimeState, reason: "init" | "update", changes
 }
 
 function collectBeforeUnloadMessage(state: RuntimeState): string | null {
+  if (shouldPromptLeave(state)) {
+    return getFormStateLeaveMessage();
+  }
   if (state.plugins.length === 0) {
     return null;
   }
@@ -916,7 +1188,9 @@ function removeDummyNodes(nodes: Element[]): void {
 
 async function bootstrapRuntime(state: RuntimeState): Promise<void> {
   setupFormHandlers(state);
+  setupFormStateHandlers(state);
   setupActionHandlers(state);
+  setupFillActionHandlers(state, state.parsed.fillActions);
   setupAutoSubmitHandlers(state);
   setupHistoryHandlers(state);
   const hasStartupRequests = state.parsed.requestTargets.some((target) => target.trigger === "startup");
@@ -961,6 +1235,7 @@ function setupFormHandlers(state: RuntimeState): void {
   }
 
   state.formTargets = formTargets;
+  state.submitterTargets = submitterTargets;
 
   const forms = new Set<HTMLFormElement>([...formTargets.keys(), ...submitterForms]);
   for (const form of forms) {
@@ -994,6 +1269,495 @@ function setupFormHandlers(state: RuntimeState): void {
   }
 }
 
+function setupFormStateHandlers(state: RuntimeState): void {
+  const forms = Array.from(state.doc.querySelectorAll<HTMLFormElement>("form"));
+  for (const form of forms) {
+    if (state.formStateContexts.has(form)) {
+      continue;
+    }
+    const ownerResult = resolveFormStateOwner(form, state);
+    if (!ownerResult) {
+      continue;
+    }
+    let { owner, declaration } = ownerResult;
+    let mode: FormStateMode = declaration.mode;
+    if (mode === "off") {
+      continue;
+    }
+    if (!formHasSubmitTarget(form, state)) {
+      emitFormStateError(state, "hy-form-state requires a form submit request (hy-get/hy-post/etc).", {
+        formId: form.id || undefined,
+        ownerId: owner.id || undefined
+      });
+      continue;
+    }
+    if (hasActionInputRequest(form, state)) {
+      emitFormStateError(state, "hy-form-state cannot be used with action-triggered input requests.", {
+        formId: form.id || undefined,
+        ownerId: owner.id || undefined
+      });
+      continue;
+    }
+
+    let autosaveEnabled = mode === "autosave" || mode === "autosave-guard";
+    const ownerId = owner.id?.trim() ? owner.id.trim() : null;
+    if (autosaveEnabled && !ownerId) {
+      emitFormStateError(state, "hy-form-state autosave requires an id on the owner element.", {
+        formId: form.id || undefined
+      });
+      autosaveEnabled = false;
+      if (mode === "autosave-guard") {
+        mode = "guard";
+      } else if (mode === "autosave") {
+        continue;
+      }
+    }
+
+    if (autosaveEnabled && !getFormStateStorage(state, form)) {
+      emitFormStateError(state, "hy-form-state autosave requires localStorage access.", {
+        formId: form.id || undefined,
+        ownerId: ownerId || undefined
+      });
+      autosaveEnabled = false;
+      if (mode === "autosave-guard") {
+        mode = "guard";
+      } else if (mode === "autosave") {
+        continue;
+      }
+    }
+
+    const context: FormStateContext = {
+      form,
+      owner,
+      ownerId,
+      mode,
+      autosaveDelayMs: autosaveEnabled ? declaration.durationMs : 0,
+      autosaveEnabled,
+      dirty: false,
+      hasDraft: false,
+      lastCommittedJson: null,
+      autosaveTimer: null,
+      fileWarningEmitted: false
+    };
+
+    state.formStateContexts.set(form, context);
+    if (!state.formStateListeners.has(form)) {
+      state.formStateListeners.add(form);
+      form.addEventListener("input", (event) => handleFormStateInput(event, context, state));
+      form.addEventListener("change", (event) => handleFormStateInput(event, context, state));
+    }
+    initializeFormStateContext(context, state);
+  }
+
+  setupFormStateNavigationHandlers(state);
+}
+
+function resolveFormStateOwner(
+  form: HTMLFormElement,
+  state: RuntimeState
+): { owner: HTMLElement; declaration: FormStateDeclaration } | null {
+  const formDeclaration = parseFormStateDeclaration(form, state);
+  if (formDeclaration) {
+    return { owner: form, declaration: formDeclaration };
+  }
+
+  const submitters = Array.from(form.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button, input")).filter(
+    (element) => isSubmitActionElement(element) && element.hasAttribute("hy-form-state")
+  );
+
+  if (submitters.length === 0) {
+    return null;
+  }
+  if (submitters.length > 1) {
+    emitFormStateError(state, "Multiple submit action elements define hy-form-state; choose one owner.", {
+      formId: form.id || undefined,
+      ownerIds: submitters.map((element) => element.id).filter(Boolean)
+    });
+    return null;
+  }
+
+  const owner = submitters[0];
+  const declaration = parseFormStateDeclaration(owner, state);
+  if (!declaration) {
+    return null;
+  }
+  return { owner, declaration };
+}
+
+function parseFormStateDeclaration(element: Element, state: RuntimeState): FormStateDeclaration | null {
+  const raw = element.getAttribute("hy-form-state");
+  if (raw === null) {
+    return null;
+  }
+  if (raw.trim() === "") {
+    emitFormStateError(state, "hy-form-state requires a declaration string.", {
+      elementId: (element as HTMLElement).id || undefined
+    });
+    return { mode: "off", durationMs: DEFAULT_AUTOSAVE_DELAY_MS, raw };
+  }
+
+  let mode: FormStateMode | null = null;
+  let durationMs = DEFAULT_AUTOSAVE_DELAY_MS;
+  const parts = raw.split(";").map((part) => part.trim()).filter(Boolean);
+
+  for (const part of parts) {
+    const splitIndex = part.indexOf(":");
+    if (splitIndex === -1) {
+      emitFormStateError(state, "hy-form-state entries must be in `key: value` form.", {
+        elementId: (element as HTMLElement).id || undefined,
+        entry: part
+      });
+      continue;
+    }
+    const key = part.slice(0, splitIndex).trim().toLowerCase();
+    const value = part.slice(splitIndex + 1).trim();
+    if (key === "mode") {
+      if (value === "autosave-guard" || value === "autosave" || value === "guard" || value === "off") {
+        mode = value;
+      } else {
+        emitFormStateError(state, "hy-form-state mode must be autosave-guard/autosave/guard/off.", {
+          elementId: (element as HTMLElement).id || undefined,
+          value
+        });
+        mode = "off";
+      }
+      continue;
+    }
+    if (key === "duration") {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        emitFormStateError(state, "hy-form-state duration must be a non-negative number.", {
+          elementId: (element as HTMLElement).id || undefined,
+          value
+        });
+      } else {
+        durationMs = parsed;
+      }
+      continue;
+    }
+    emitFormStateError(state, "hy-form-state contains an unknown key.", {
+      elementId: (element as HTMLElement).id || undefined,
+      key
+    });
+  }
+
+  if (!mode) {
+    emitFormStateError(state, "hy-form-state requires a mode key.", {
+      elementId: (element as HTMLElement).id || undefined
+    });
+    mode = "off";
+  }
+
+  return { mode, durationMs, raw };
+}
+
+function isSubmitActionElement(element: Element): element is HTMLButtonElement | HTMLInputElement {
+  if (element instanceof HTMLButtonElement) {
+    return element.type === "submit";
+  }
+  if (element instanceof HTMLInputElement) {
+    return element.type === "submit" || element.type === "image";
+  }
+  return false;
+}
+
+function formHasSubmitTarget(form: HTMLFormElement, state: RuntimeState): boolean {
+  return state.parsed.requestTargets.some((target) => target.trigger === "submit" && target.form === form);
+}
+
+function hasActionInputRequest(form: HTMLFormElement, state: RuntimeState): boolean {
+  return state.parsed.requestTargets.some(
+    (target) =>
+      target.trigger === "action" &&
+      target.form === form &&
+      (target.element instanceof HTMLInputElement ||
+        target.element instanceof HTMLSelectElement ||
+        target.element instanceof HTMLTextAreaElement)
+  );
+}
+
+function handleFormStateInput(event: Event, context: FormStateContext, state: RuntimeState): void {
+  if (!isFormControl(event.target)) {
+    return;
+  }
+  context.dirty = true;
+  scheduleFormStateSnapshot(context, state);
+}
+
+function scheduleFormStateSnapshot(context: FormStateContext, state: RuntimeState): void {
+  const view = state.doc.defaultView;
+  if (!view) {
+    return;
+  }
+  if (context.autosaveTimer) {
+    view.clearTimeout(context.autosaveTimer);
+    context.autosaveTimer = null;
+  }
+  const delay = context.autosaveEnabled ? context.autosaveDelayMs : 0;
+  if (delay === 0) {
+    applyFormStateSnapshot(context, state);
+    return;
+  }
+  context.autosaveTimer = view.setTimeout(() => {
+    context.autosaveTimer = null;
+    applyFormStateSnapshot(context, state);
+  }, delay);
+}
+
+function applyFormStateSnapshot(context: FormStateContext, state: RuntimeState): void {
+  const snapshot = buildFormStateSnapshot(context, state);
+  if (!snapshot) {
+    return;
+  }
+  context.dirty = context.lastCommittedJson ? snapshot.json !== context.lastCommittedJson : true;
+  if (context.autosaveEnabled) {
+    if (!context.ownerId) {
+      return;
+    }
+    const storage = getFormStateStorage(state, context.form);
+    if (!storage) {
+      return;
+    }
+    const payload = JSON.stringify({ savedAt: new Date().toISOString(), data: snapshot.data });
+    storage.setItem(getFormStateStorageKey(context, state), payload);
+    context.hasDraft = true;
+    emitLog(state, {
+      type: "info",
+      message: "form-state:autosave",
+      detail: { key: getFormStateStorageKey(context, state), size: payload.length },
+      timestamp: Date.now()
+    });
+  }
+}
+
+function buildFormStateSnapshot(
+  context: FormStateContext,
+  state: RuntimeState
+): { data: Record<string, unknown>; json: string } | null {
+  const entries = collectFormValues(context.form);
+  const filtered: FormEntry[] = [];
+  let hasFile = false;
+  for (const entry of entries) {
+    const values = Array.isArray(entry.value) ? entry.value : [entry.value];
+    const containsFile = values.some((value) => value instanceof File);
+    if (containsFile) {
+      hasFile = true;
+      continue;
+    }
+    filtered.push(entry);
+  }
+
+  if (hasFile && !context.fileWarningEmitted) {
+    context.fileWarningEmitted = true;
+    emitFormStateError(state, "File inputs are excluded from hy-form-state autosave.", {
+      formId: context.form.id || undefined,
+      ownerId: context.ownerId || undefined
+    });
+  }
+
+  const data = formEntriesToPayload(filtered);
+  try {
+    const json = JSON.stringify(data);
+    return { data, json };
+  } catch (error) {
+    emitFormStateError(state, "Failed to serialize form state for autosave.", {
+      formId: context.form.id || undefined
+    });
+    return null;
+  }
+}
+
+function initializeFormStateContext(context: FormStateContext, state: RuntimeState): void {
+  const initialSnapshot = buildFormStateSnapshot(context, state);
+  context.lastCommittedJson = initialSnapshot ? initialSnapshot.json : null;
+  context.dirty = false;
+
+  if (!context.autosaveEnabled || !context.ownerId) {
+    return;
+  }
+  const storage = getFormStateStorage(state, context.form);
+  if (!storage) {
+    return;
+  }
+  const key = getFormStateStorageKey(context, state);
+  const raw = storage.getItem(key);
+  if (!raw) {
+    return;
+  }
+  context.hasDraft = true;
+  const parsed = safeParseFormStateDraft(raw, context, state);
+  if (!parsed) {
+    return;
+  }
+  const label = formatLocalTimestamp(parsed.savedAt);
+  const message = `${label} に送信せずに入力された値があります。復元しますか？`;
+  const view = state.doc.defaultView;
+  const confirmed = view ? view.confirm(message) : false;
+  emitLog(state, {
+    type: "info",
+    message: "form-state:restore",
+    detail: { key, accepted: confirmed },
+    timestamp: Date.now()
+  });
+  if (!confirmed) {
+    return;
+  }
+  fillForm(context.form, parsed.data);
+  const restoredSnapshot = buildFormStateSnapshot(context, state);
+  context.lastCommittedJson = restoredSnapshot ? restoredSnapshot.json : context.lastCommittedJson;
+  context.dirty = false;
+}
+
+function safeParseFormStateDraft(
+  raw: string,
+  context: FormStateContext,
+  state: RuntimeState
+): { savedAt: string; data: Record<string, unknown> } | null {
+  try {
+    const parsed = JSON.parse(raw) as { savedAt?: string; data?: unknown };
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("invalid");
+    }
+    if (typeof parsed.savedAt !== "string" || !parsed.data || typeof parsed.data !== "object") {
+      throw new Error("invalid");
+    }
+    return { savedAt: parsed.savedAt, data: parsed.data as Record<string, unknown> };
+  } catch (error) {
+    emitFormStateError(state, "Invalid autosave draft payload.", {
+      formId: context.form.id || undefined,
+      ownerId: context.ownerId || undefined
+    });
+    return null;
+  }
+}
+
+function formatLocalTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return "????-??-?? ??:??";
+  }
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
+    date.getMinutes()
+  )}`;
+}
+
+function getFormStateStorageKey(context: FormStateContext, state: RuntimeState): string {
+  const pathname = state.doc.defaultView?.location?.pathname ?? "";
+  return `${pathname}:${context.ownerId ?? ""}`;
+}
+
+function getFormStateStorage(state: RuntimeState, form: HTMLFormElement): Storage | null {
+  try {
+    return state.doc.defaultView?.localStorage ?? null;
+  } catch (error) {
+    emitFormStateError(state, "localStorage access failed for hy-form-state.", {
+      formId: form.id || undefined
+    });
+    return null;
+  }
+}
+
+function setupFormStateNavigationHandlers(state: RuntimeState): void {
+  const view = state.doc.defaultView;
+  if (!view || state.formStateNavListenerAttached) {
+    return;
+  }
+  state.formStateNavListenerAttached = true;
+  state.doc.addEventListener("click", (event) => {
+    if (!(event instanceof MouseEvent)) {
+      return;
+    }
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) {
+      return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+    if (!anchor) {
+      return;
+    }
+    if (anchor.hasAttribute("download")) {
+      return;
+    }
+    if (anchor.target && anchor.target !== "_self") {
+      return;
+    }
+    if (!shouldPromptLeave(state)) {
+      return;
+    }
+    const message = getFormStateLeaveMessage();
+    const confirmed = view.confirm(message);
+    if (!confirmed) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+}
+
+function shouldPromptLeave(state: RuntimeState): boolean {
+  for (const context of state.formStateContexts.values()) {
+    if ((context.mode === "guard" || context.mode === "autosave-guard") && context.dirty) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getFormStateLeaveMessage(): string {
+  return "入力内容が未送信です。移動しますか？";
+}
+
+function emitFormStateError(state: RuntimeState, message: string, detail?: Record<string, unknown>): void {
+  emitLog(state, {
+    type: "error",
+    message,
+    detail,
+    timestamp: Date.now()
+  });
+  pushError(state, createHyError("syntax", message, detail));
+  if (typeof console !== "undefined") {
+    console.error("[hytde] form-state error", message, detail);
+  }
+}
+
+function clearFormStateOnRequest(target: ParsedRequestTarget, state: RuntimeState): void {
+  const form = target.form;
+  if (!form) {
+    return;
+  }
+  const context = state.formStateContexts.get(form);
+  if (!context) {
+    return;
+  }
+  const view = state.doc.defaultView;
+  if (context.autosaveTimer && view) {
+    view.clearTimeout(context.autosaveTimer);
+    context.autosaveTimer = null;
+  }
+  const snapshot = buildFormStateSnapshot(context, state);
+  if (snapshot) {
+    context.lastCommittedJson = snapshot.json;
+  }
+  context.dirty = false;
+
+  if (!context.autosaveEnabled || !context.ownerId) {
+    return;
+  }
+  const storage = getFormStateStorage(state, form);
+  if (!storage) {
+    return;
+  }
+  const key = getFormStateStorageKey(context, state);
+  storage.removeItem(key);
+  context.hasDraft = false;
+  emitLog(state, {
+    type: "info",
+    message: "form-state:clear",
+    detail: { key },
+    timestamp: Date.now()
+  });
+}
+
 function setupActionHandlers(state: RuntimeState): void {
   const view = state.doc.defaultView;
   if (!view) {
@@ -1015,6 +1779,16 @@ function setupActionHandlers(state: RuntimeState): void {
         if (state.actionCommandSkip.has(element)) {
           return;
         }
+        const selector = getFillSelectorFromTarget(target);
+        if (selector) {
+          emitLog(state, {
+            type: "info",
+            message: "fill:trigger",
+            detail: { selector, elementId: element.id || undefined },
+            timestamp: Date.now()
+          });
+        }
+        applyFillActionIfNeeded(target, state);
         event.preventDefault();
         event.stopPropagation();
         void handleActionRequest(target, state);
@@ -1032,7 +1806,61 @@ function setupActionHandlers(state: RuntimeState): void {
       element.addEventListener("input", () => {
         scheduleActionRequest(target, state);
       });
+      element.addEventListener("change", () => {
+        applyFillActionIfNeeded(target, state);
+      });
+      continue;
     }
+
+    if (element instanceof HTMLTextAreaElement) {
+      element.addEventListener("input", () => {
+        scheduleActionRequest(target, state);
+      });
+      element.addEventListener("change", () => {
+        applyFillActionIfNeeded(target, state);
+      });
+      continue;
+    }
+
+    if (element instanceof HTMLSelectElement) {
+      element.addEventListener("change", () => {
+        applyFillActionIfNeeded(target, state);
+        if (state.cascade.actionSkip.has(element)) {
+          state.cascade.actionSkip.delete(element);
+          return;
+        }
+        scheduleActionRequest(target, state);
+      });
+    }
+  }
+}
+
+function setupFillActionHandlers(state: RuntimeState, actions: ParsedFillAction[]): void {
+  for (const action of actions) {
+    const element = action.element as HTMLElement;
+    if (state.actionListeners.has(element)) {
+      continue;
+    }
+    if (state.fillActionListeners.has(element)) {
+      continue;
+    }
+    state.fillActionListeners.add(element);
+    state.fillActionData.set(element, action);
+    element.addEventListener("click", (event) => {
+      if (state.actionCommandSkip.has(element)) {
+        return;
+      }
+      const selector = getFillSelectorFromElement(element, state);
+      emitLog(state, {
+        type: "info",
+        message: "fill:trigger",
+        detail: { selector: selector ?? undefined, elementId: element.id || undefined },
+        timestamp: Date.now()
+      });
+      applyFillActionFromElement(element, state);
+      event.preventDefault();
+      event.stopPropagation();
+    });
   }
 }
 
@@ -1057,6 +1885,201 @@ function scheduleActionRequest(target: ParsedRequestTarget, state: RuntimeState)
     void handleActionRequest(target, state);
   }, debounceMs);
   state.actionDebounceTimers.set(element, timer);
+}
+
+function applyFillActionIfNeeded(target: ParsedRequestTarget, state: RuntimeState): void {
+  const selectorRaw = target.fillTarget;
+  if (selectorRaw === null) {
+    return;
+  }
+  applyFillAction(
+    selectorRaw,
+    target.form ?? (target.element.closest("form") as HTMLFormElement | null),
+    target.element,
+    state,
+    target.fillValue
+  );
+}
+
+function applyFillActionFromElement(element: Element, state: RuntimeState): void {
+  const data = state.fillActionData.get(element);
+  const selectorRaw = data?.selector ?? element.getAttribute("hy-fill");
+  if (selectorRaw === null || selectorRaw === undefined) {
+    return;
+  }
+  applyFillAction(
+    selectorRaw,
+    data?.form ?? (element.closest("form") as HTMLFormElement | null),
+    element,
+    state,
+    data?.value ?? element.getAttribute("hy-value")
+  );
+}
+
+function applyFillAction(
+  selectorRaw: string,
+  form: HTMLFormElement | null,
+  element: Element,
+  state: RuntimeState,
+  explicitValue: string | null
+): void {
+  const selector = selectorRaw.trim();
+  if (!selector) {
+    emitFillError(state, "hy-fill requires a non-empty selector.", {
+      elementId: (element as HTMLElement).id || undefined
+    });
+    return;
+  }
+  const root: ParentNode = form ?? element.ownerDocument;
+  let matches: Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
+  try {
+    matches = Array.from(root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(selector));
+  } catch (error) {
+    emitFillError(state, "hy-fill selector is invalid.", {
+      selector,
+      formId: form?.id || undefined,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return;
+  }
+  if (matches.length === 0) {
+    emitFillError(state, "hy-fill selector did not match any control.", {
+      selector,
+      formId: form?.id || undefined
+    });
+    return;
+  }
+  if (matches.length > 1) {
+    emitFillError(state, "hy-fill selector matched multiple controls.", {
+      selector,
+      formId: form?.id || undefined
+    });
+    return;
+  }
+  const control = matches[0];
+  if (!isFormControl(control)) {
+    emitFillError(state, "hy-fill target is not a form control.", {
+      selector,
+      formId: form?.id || undefined
+    });
+    return;
+  }
+  const value = resolveFillValue(element, explicitValue);
+  applyFillValue(control, value);
+  emitLog(state, {
+    type: "info",
+    message: "fill:apply",
+    detail: {
+      selector,
+      value,
+      formId: form?.id || undefined,
+      targetName: control.name || undefined
+    },
+    timestamp: Date.now()
+  });
+  triggerFillCommand(element, state);
+}
+
+function resolveFillValue(element: Element, explicitValue: string | null): string {
+  if (explicitValue != null) {
+    return explicitValue;
+  }
+  if (element instanceof HTMLInputElement) {
+    return element.value ?? "";
+  }
+  return element.textContent?.trim() ?? "";
+}
+
+function applyFillValue(
+  control: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+  value: string
+): void {
+  if (control instanceof HTMLInputElement) {
+    const type = control.type;
+    if (type === "checkbox") {
+      control.checked = control.value === value;
+      return;
+    }
+    if (type === "radio") {
+      control.checked = control.value === value;
+      return;
+    }
+    control.value = value;
+    return;
+  }
+  if (control instanceof HTMLSelectElement) {
+    const options = Array.from(control.options);
+    const match = options.find((option) => option.value === value) ?? null;
+    if (match) {
+      control.value = match.value;
+    } else {
+      control.value = value;
+    }
+    return;
+  }
+  control.value = value;
+}
+
+function emitFillError(state: RuntimeState, message: string, detail?: Record<string, unknown>): void {
+  emitLog(state, {
+    type: "error",
+    message,
+    detail,
+    timestamp: Date.now()
+  });
+  pushError(state, createHyError("syntax", message, detail));
+  if (typeof console !== "undefined") {
+    console.error("[hytde] fill error", message, detail);
+  }
+}
+
+function getFillSelectorFromElement(element: Element, state: RuntimeState): string | null {
+  const data = state.fillActionData.get(element);
+  const raw = data?.selector ?? element.getAttribute("hy-fill");
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  const selector = raw.trim();
+  if (!selector) {
+    return null;
+  }
+  return selector;
+}
+
+function getFillSelectorFromTarget(target: ParsedRequestTarget): string | null {
+  const raw = target.fillTarget;
+  if (raw === null) {
+    return null;
+  }
+  const selector = raw.trim();
+  if (!selector) {
+    return null;
+  }
+  return selector;
+}
+
+function triggerFillCommand(element: Element, state: RuntimeState): void {
+  const data = state.fillActionData.get(element);
+  const command = data?.command ?? element.getAttribute("command");
+  const commandFor = data?.commandFor ?? element.getAttribute("commandfor");
+  if (!command || !commandFor) {
+    return;
+  }
+  const doc = element.ownerDocument;
+  if (!doc) {
+    return;
+  }
+  const root = doc.body ?? doc.documentElement ?? element.parentNode;
+  if (!root) {
+    return;
+  }
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.setAttribute("command", command);
+  button.setAttribute("commandfor", commandFor);
+  root.appendChild(button);
+  button.click();
+  button.remove();
 }
 
 function getDebounceMsForElement(element: Element): number | null {
@@ -1748,9 +2771,13 @@ function getRedirectAttribute(target: ParsedRequestTarget): string | null {
 }
 
 function resolveRequestUrl(target: ParsedRequestTarget, state: RuntimeState): InterpolationResult {
-  const scope = buildScopeStack(target.element, state);
+  const scope = buildRequestScope(target, state);
   let template = target.urlTemplate;
-  if (target.element instanceof HTMLInputElement) {
+  if (
+    target.element instanceof HTMLInputElement ||
+    target.element instanceof HTMLSelectElement ||
+    target.element instanceof HTMLTextAreaElement
+  ) {
     const encoded = encodeURIComponent(target.element.value ?? "");
     template = template.replace(/\[value\]/g, encoded);
   }
@@ -1760,9 +2787,30 @@ function resolveRequestUrl(target: ParsedRequestTarget, state: RuntimeState): In
   });
 }
 
+function buildRequestScope(target: ParsedRequestTarget, state: RuntimeState): ScopeStack {
+  const scope = buildScopeStack(target.element, state);
+  const element = target.element;
+  if (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement
+  ) {
+    const name = element.name?.trim();
+    if (name) {
+      const value = element instanceof HTMLInputElement ? readInputValue(element) : element.value;
+      scope.push({ [name]: value });
+    }
+  }
+  return scope;
+}
+
 async function handleActionRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<boolean> {
   if (!target.element.isConnected) {
     return false;
+  }
+
+  if (target.form && target.element instanceof HTMLButtonElement) {
+    clearFormStateOnRequest(target, state);
   }
 
   if (target.element instanceof HTMLButtonElement && target.method === "GET") {
@@ -1856,8 +2904,13 @@ function applyRequestPayload(target: ParsedRequestTarget, payload: unknown, stat
   }
   maybeRedirectAfterSubmit(target, payload, state);
   cleanupRequestTarget(target);
-  if (target.store && !state.bootstrapPending) {
-    renderDocument(state, [{ type: "store", selector: target.store }]);
+  if (target.store) {
+    const cascadedStores = handleCascadeStoreUpdate(target.store, state);
+    if (!state.bootstrapPending) {
+      const selectors = [target.store, ...cascadedStores];
+      const changes: PluginChange[] = selectors.map((selector) => ({ type: "store", selector }));
+      renderDocument(state, changes);
+    }
   }
 }
 
@@ -1963,6 +3016,10 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
     return false;
   }
 
+  if (target.form && target.trigger === "submit") {
+    clearFormStateOnRequest(target, state);
+  }
+
   const resolvedUrl = resolveRequestUrl(target, state);
 
   maybeUpdateHistoryOnSubmit(target, state);
@@ -1971,18 +3028,25 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
 
   const method = target.method;
   const dedupeKey = method === "GET" ? finalUrl : null;
-  const promise = dedupeKey ? state.requestCache.get(dedupeKey) : null;
+  const cached = dedupeKey ? state.requestCache.get(dedupeKey) : null;
 
-  if (promise) {
+  if (cached) {
     if (target.form) {
       state.inFlightForms.add(target.form);
     }
-    await promise.finally(() => {
+    await cached.promise.finally(() => {
       if (target.form) {
         state.inFlightForms.delete(target.form);
       }
     });
+    if (cached.payloadSet) {
+      applyRequestPayload(target, cached.payload, state);
+    }
     return true;
+  }
+
+  if (target.kind === "fetch" && target.store) {
+    markCascadeRequestPending(target, state);
   }
 
   const requestId = ++state.requestCounter;
@@ -2021,6 +3085,13 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
         return;
       }
       applyRequestPayload(target, response.data, state);
+      if (dedupeKey) {
+        const entry = state.requestCache.get(dedupeKey);
+        if (entry) {
+          entry.payload = response.data;
+          entry.payloadSet = true;
+        }
+      }
       succeeded = true;
     })
     .catch((error: unknown) => {
@@ -2039,7 +3110,7 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
   setErrors(state, []);
 
   if (dedupeKey) {
-    state.requestCache.set(dedupeKey, requestPromise);
+    state.requestCache.set(dedupeKey, { promise: requestPromise, payload: undefined, payloadSet: false });
   }
 
   await requestPromise;
@@ -2099,6 +3170,7 @@ async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState
   const gate = createStreamGate(target);
   const mockRule = matchMockRule(resolvedUrl.value, "GET", state.mockRules);
   if (mockRule) {
+    logMockMatch(state, "GET", resolvedUrl.value);
     emitLog(state, {
       type: "request",
       message: "sse:mock",
@@ -2116,6 +3188,7 @@ async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState
     await gate.promise;
     return;
   }
+  logMockUnhandled(state, "GET", resolvedUrl.value);
 
   const eventSource = new EventSource(resolvedUrl.value);
   state.sseSources.set(target, eventSource);
@@ -2187,6 +3260,7 @@ async function consumeStream(
 ): Promise<void> {
   const mockRule = matchMockRule(url, init.method ?? "GET", state.mockRules);
   if (mockRule) {
+    logMockMatch(state, init.method ?? "GET", url);
     emitLog(state, {
       type: "request",
       message: "stream:mock",
@@ -2200,6 +3274,7 @@ async function consumeStream(
     await emitMockStream(payload, target, state, gate, mockRule);
     return;
   }
+  logMockUnhandled(state, init.method ?? "GET", url);
 
   const response = await fetch(url, init);
   if (!response.ok) {
@@ -2395,6 +3470,7 @@ async function runPollingOnce(
 ): Promise<void> {
   const mockRule = matchMockRule(url, init.method ?? "GET", state.mockRules);
   if (mockRule) {
+    logMockMatch(state, init.method ?? "GET", url);
     emitLog(state, {
       type: "request",
       message: "polling:mock",
@@ -2408,6 +3484,7 @@ async function runPollingOnce(
     applyPollingStore(target, payload, state);
     return;
   }
+  logMockUnhandled(state, init.method ?? "GET", url);
 
   try {
     state.pendingRequests += 1;
@@ -2440,7 +3517,10 @@ function applyPollingStore(target: ParsedRequestTarget, payload: unknown, state:
   }
   state.globals.hyState[store] = unwrap;
   if (!state.bootstrapPending) {
-    renderDocument(state, [{ type: "store", selector: store }]);
+    const cascadedStores = handleCascadeStoreUpdate(store, state);
+    const selectors = [store, ...cascadedStores];
+    const changes: PluginChange[] = selectors.map((selector) => ({ type: "store", selector }));
+    renderDocument(state, changes);
   }
 }
 
@@ -2750,23 +3830,27 @@ interface FetchResult {
 
 async function fetchRequest(url: string, init: RequestInit, state: RuntimeState): Promise<FetchResult> {
   const method = (init.method ?? "GET").toUpperCase();
-  const mockRule = matchMockRule(url, method, state.mockRules);
-  if (mockRule) {
-    const delay = mockRule.delayMs ?? { min: 100, max: 500 };
-    const wait = delay.min + Math.random() * (delay.max - delay.min);
-    await new Promise((resolve) => setTimeout(resolve, wait));
-    const response = await fetch(mockRule.path, { method: "GET" });
-    if (!response.ok) {
-      throw new Error(`Mock fetch failed: ${response.status}`);
+  if (!state.useMswMock) {
+    const mockRule = matchMockRule(url, method, state.mockRules);
+    if (mockRule) {
+      logMockMatch(state, method, url);
+      const delay = mockRule.delayMs ?? { min: 100, max: 500 };
+      const wait = delay.min + Math.random() * (delay.max - delay.min);
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      const response = await fetch(mockRule.path, { method: "GET" });
+      if (!response.ok) {
+        throw new Error(`Mock fetch failed: ${response.status}`);
+      }
+      const payload = await safeJson(response);
+      const status = mockRule.status ?? response.status;
+      return {
+        data: payload,
+        status,
+        mocked: true,
+        ok: status >= 200 && status < 300
+      };
     }
-    const payload = await safeJson(response);
-    const status = mockRule.status ?? response.status;
-    return {
-      data: payload,
-      status,
-      mocked: true,
-      ok: status >= 200 && status < 300
-    };
+    logMockUnhandled(state, method, url);
   }
 
   const response = await fetch(url, init);
@@ -2784,6 +3868,141 @@ async function safeJson(response: Response): Promise<unknown> {
   } catch (error) {
     return null;
   }
+}
+
+function markCascadeRequestPending(target: ParsedRequestTarget, state: RuntimeState): void {
+  if (!target.store) {
+    return;
+  }
+  const selects = state.cascade.storeToSelects.get(target.store);
+  if (!selects) {
+    return;
+  }
+  for (const select of selects) {
+    disableCascadeSelect(select, state);
+  }
+}
+
+function disableCascadeSelect(select: HTMLSelectElement, state: RuntimeState): void {
+  const existing = state.cascade.disabledState.get(select);
+  if (existing) {
+    return;
+  }
+  state.cascade.disabledState.set(select, {
+    prevDisabled: select.disabled,
+    prevAriaBusy: select.getAttribute("aria-busy")
+  });
+  select.disabled = true;
+  select.setAttribute("aria-busy", "true");
+}
+
+function enableCascadeSelect(select: HTMLSelectElement, state: RuntimeState): void {
+  const existing = state.cascade.disabledState.get(select);
+  if (!existing) {
+    return;
+  }
+  if (!existing.prevDisabled) {
+    select.disabled = false;
+  }
+  if (existing.prevAriaBusy === null) {
+    select.removeAttribute("aria-busy");
+  } else {
+    select.setAttribute("aria-busy", existing.prevAriaBusy);
+  }
+  state.cascade.disabledState.delete(select);
+}
+
+function resetCascadeSelect(select: HTMLSelectElement, state: RuntimeState): boolean {
+  if (select.multiple) {
+    let changed = false;
+    for (const option of Array.from(select.options)) {
+      if (option.selected) {
+        option.selected = false;
+        changed = true;
+      }
+    }
+    if (changed) {
+      state.cascade.actionSkip.add(select);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return changed;
+  }
+
+  const hasEmpty = Array.from(select.options).some((option) => option.value === "");
+  const previousValue = select.value;
+  if (hasEmpty) {
+    select.value = "";
+  } else {
+    select.selectedIndex = -1;
+  }
+  const changed = select.value !== previousValue;
+  if (changed) {
+    state.cascade.actionSkip.add(select);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  return changed;
+}
+
+function handleCascadeStoreUpdate(store: string, state: RuntimeState): string[] {
+  const clearedStores = new Set<string>();
+  const pending = [store];
+  const processed = new Set<string>();
+
+  while (pending.length > 0) {
+    const current = pending.shift();
+    if (!current) {
+      continue;
+    }
+    if (processed.has(current)) {
+      continue;
+    }
+    processed.add(current);
+
+    const selects = state.cascade.storeToSelects.get(current);
+    if (!selects) {
+      continue;
+    }
+
+    for (const select of selects) {
+      if (state.cascade.cycleSelects.has(select)) {
+        continue;
+      }
+      resetCascadeSelect(select, state);
+      const downstreamStores = state.cascade.selectToStores.get(select);
+      if (!downstreamStores) {
+        continue;
+      }
+      for (const downstream of downstreamStores) {
+        if (clearedStores.has(downstream)) {
+          continue;
+        }
+        state.globals.hyState[downstream] = null;
+        clearedStores.add(downstream);
+        pending.push(downstream);
+      }
+    }
+
+    for (const select of selects) {
+      enableCascadeSelect(select, state);
+    }
+  }
+
+  return Array.from(clearedStores);
+}
+
+function logMockMatch(state: RuntimeState, method: string, url: string): void {
+  if (state.parsed.executionMode !== "mock") {
+    return;
+  }
+  if (typeof console !== "undefined") {
+    console.debug("request:match", { method, url, mocked: true });
+  }
+}
+
+function logMockUnhandled(state: RuntimeState, method: string, url: string): void {
+  void state;
+  void method;
+  void url;
 }
 
 function matchMockRule(url: string, method: string, rules: MockRule[]): MockRule | null {
@@ -2881,6 +4100,19 @@ function emitTransformError(state: RuntimeState, message: string, detail?: Recor
   pushError(state, createHyError("transform", message, detail));
   if (typeof console !== "undefined") {
     console.error("[hytde] transform error", message, detail);
+  }
+}
+
+function emitExpressionError(state: RuntimeState, message: string, detail?: Record<string, unknown>): void {
+  emitLog(state, {
+    type: "error",
+    message,
+    detail,
+    timestamp: Date.now()
+  });
+  pushError(state, createHyError("syntax", message, detail));
+  if (typeof console !== "undefined") {
+    console.error("[hytde] expression error", message, detail);
   }
 }
 
@@ -3158,7 +4390,7 @@ function renderDocument(
     timestamp: Date.now()
   });
 
-  renderParsedSubtree(state.parsed, state, []);
+  renderParsedSubtree(state.parsed, state, [], changes);
   cleanupRequestTargets(state.parsed.requestTargets);
 
   emitLog(state, {
@@ -3319,7 +4551,12 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
   if (!template.marker.isConnected) {
     return;
   }
-  const items = evaluateSelector(template.selector, scope, state.globals);
+  const select =
+    template.template.tagName === "OPTION" && template.marker.parentNode instanceof HTMLSelectElement
+      ? template.marker.parentNode
+      : null;
+  const selectionSnapshot = select ? captureSelectSelection(select) : null;
+  const items = evaluateSelector(template.selector, scope, state);
   const appendMode = state.appendStores?.has(template.selector) ?? false;
   const appendCount = Array.isArray(items) ? Math.max(0, items.length - template.rendered.length) : 0;
   const logValue = appendMode ? undefined : items;
@@ -3342,6 +4579,9 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
       detail: { selector: template.selector, rendered: 0 },
       timestamp: Date.now()
     });
+    if (select && selectionSnapshot) {
+      restoreSelectSelection(select, selectionSnapshot);
+    }
     return;
   }
 
@@ -3390,6 +4630,38 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
     detail: { selector: template.selector, rendered: template.rendered.length },
     timestamp: Date.now()
   });
+  if (select && selectionSnapshot) {
+    restoreSelectSelection(select, selectionSnapshot);
+  }
+}
+
+type SelectSelectionSnapshot = { multiple: true; values: string[] } | { multiple: false; value: string };
+
+function captureSelectSelection(select: HTMLSelectElement): SelectSelectionSnapshot {
+  if (select.multiple) {
+    return {
+      multiple: true,
+      values: Array.from(select.selectedOptions).map((option) => option.value)
+    };
+  }
+  return { multiple: false, value: select.value };
+}
+
+function restoreSelectSelection(select: HTMLSelectElement, snapshot: SelectSelectionSnapshot): void {
+  if (snapshot.multiple) {
+    const values = new Set(snapshot.values);
+    for (const option of Array.from(select.options)) {
+      option.selected = values.has(option.value);
+    }
+    return;
+  }
+  if (snapshot.value === "") {
+    return;
+  }
+  const exists = Array.from(select.options).some((option) => option.value === snapshot.value);
+  if (exists) {
+    select.value = snapshot.value;
+  }
 }
 
 type ScopeStack = Array<Record<string, unknown>>;
@@ -3405,51 +4677,76 @@ function buildScopeStack(element: Element, state: RuntimeState): ScopeStack {
   return scopes;
 }
 
-function renderParsedSubtree(parsed: ParsedSubtree, state: RuntimeState, scope: ScopeStack): void {
+function renderParsedSubtree(
+  parsed: ParsedSubtree,
+  state: RuntimeState,
+  scope: ScopeStack,
+  changes?: PluginChange[]
+): void {
   removeDummyNodes(parsed.dummyElements);
 
-  for (const template of parsed.forTemplates) {
-    renderForTemplate(template, state, scope);
-  }
-
   processIfChains(parsed.ifChains, state, scope);
+  for (const template of parsed.forTemplates) {
+    if (shouldRenderForTemplate(template, changes)) {
+      renderForTemplate(template, state, scope);
+    }
+  }
   processBindings(parsed, state, scope);
+  setupFillActionHandlers(state, parsed.fillActions);
   applyFillTargets(parsed.fillTargets, state, scope);
+}
+
+function shouldRenderForTemplate(template: ParsedForTemplate, changes?: PluginChange[]): boolean {
+  if (!changes || changes.length === 0) {
+    return true;
+  }
+  if (changes.some((change) => change.type === "dom")) {
+    return true;
+  }
+  return changes.some((change) => {
+    if (change.type !== "store") {
+      return false;
+    }
+    if (change.selector === template.selector) {
+      return true;
+    }
+    return template.selector.startsWith(`${change.selector}.`);
+  });
 }
 
 function processIfChains(chains: ParsedIfChain[], state: RuntimeState, scope: ScopeStack): void {
   for (const chain of chains) {
-    const nodes = chain.nodes.filter((node) => node.isConnected);
-    if (nodes.length === 0) {
+    const parent = chain.anchor.parentNode;
+    if (!parent) {
       continue;
     }
 
-    let kept: Element | null = null;
-    for (const node of nodes) {
+    let kept: ParsedIfChainNode | null = null;
+    for (const entry of chain.nodes) {
       let condition = true;
-      if (node.hasAttribute("hy-if")) {
-        const expr = node.getAttribute("hy-if") ?? "";
-        condition = Boolean(evaluateExpression(expr, scope, state));
-      } else if (node.hasAttribute("hy-else-if")) {
-        const expr = node.getAttribute("hy-else-if") ?? "";
-        condition = Boolean(evaluateExpression(expr, scope, state));
+      if (entry.kind === "if" || entry.kind === "else-if") {
+        condition = Boolean(evaluateExpression(entry.expression ?? "", scope, state));
       }
 
       if (!kept && condition) {
-        kept = node;
-      } else if (node !== kept) {
-        node.remove();
+        kept = entry;
       }
-
-      node.removeAttribute("hy-if");
-      node.removeAttribute("hy-else-if");
-      node.removeAttribute("hy-else");
     }
 
-    if (kept && kept.hasAttribute("hidden")) {
-      const hidden = kept.getAttribute("hidden");
-      if (hidden === "" || hidden === "hy-ignore") {
-        kept.removeAttribute("hidden");
+    for (const entry of chain.nodes) {
+      const node = entry.node;
+      if (kept && node === kept.node) {
+        if (node.parentNode !== parent || node.previousSibling !== chain.anchor) {
+          parent.insertBefore(node, chain.anchor.nextSibling);
+        }
+        if (node.hasAttribute("hidden")) {
+          const hidden = node.getAttribute("hidden");
+          if (hidden === "" || hidden === "hy-ignore") {
+            node.removeAttribute("hidden");
+          }
+        }
+      } else if (node.isConnected) {
+        node.remove();
       }
     }
   }
@@ -3713,7 +5010,7 @@ function replacePathTokensWithValues(
 }
 
 function resolvePathTokenValue(token: string, scope: ScopeStack, state: RuntimeState): string | null {
-  const evaluated = evaluateSelector(token, scope, state.globals);
+  const evaluated = evaluateSelector(token, scope, state);
   if (isJsonScalar(evaluated) && evaluated != null) {
     return String(evaluated);
   }
@@ -3809,7 +5106,7 @@ function evaluateExpression(expression: string, scope: ScopeStack, state: Runtim
     return null;
   }
 
-  let value = evaluateSelector(parts[0], scope, state.globals);
+  let value = evaluateSelector(parts[0], scope, state);
   for (let index = 1; index < parts.length; index += 1) {
     const transform = parseTransform(parts[index]);
     value = applyTransform(transform, value, state);
@@ -3928,8 +5225,16 @@ function applyTransform(transform: { name: string; args: unknown[] }, value: unk
   return output;
 }
 
-function evaluateSelector(selector: string, scope: ScopeStack, globals: RuntimeGlobals): unknown {
-  const tokens = parseSelectorTokens(selector);
+function evaluateSelector(selector: string, scope: ScopeStack, state: RuntimeState): unknown {
+  const parsed = parseSelectorTokensStrict(selector);
+  if (parsed.error) {
+    emitExpressionError(state, "Expression selector is invalid.", {
+      selector,
+      reason: parsed.error
+    });
+    return null;
+  }
+  const tokens = parsed.tokens;
   if (tokens.length === 0) {
     return null;
   }
@@ -3939,7 +5244,7 @@ function evaluateSelector(selector: string, scope: ScopeStack, globals: RuntimeG
     return null;
   }
 
-  let current = resolveRootValue(first, scope, globals);
+  let current = resolveRootValue(first, scope, state.globals);
   for (let index = 1; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (current == null) {
@@ -4058,6 +5363,112 @@ function parseSelectorTokens(selector: string): Array<string | number> {
   }
 
   return tokens;
+}
+
+function parseSelectorTokensStrict(
+  selector: string
+): { tokens: Array<string | number>; error: string | null } {
+  const tokens: Array<string | number> = [];
+  if (!selector) {
+    return { tokens, error: "Selector is empty." };
+  }
+  let cursor = 0;
+  const length = selector.length;
+
+  const readIdentifier = (): string | null => {
+    const match = selector.slice(cursor).match(/^([A-Za-z_$][\w$]*)/);
+    if (!match) {
+      return null;
+    }
+    cursor += match[1].length;
+    return match[1];
+  };
+
+  const first = readIdentifier();
+  if (!first) {
+    return { tokens, error: "Selector must start with an identifier." };
+  }
+  tokens.push(first);
+
+  while (cursor < length) {
+    const char = selector[cursor];
+    if (char === ".") {
+      cursor += 1;
+      const ident = readIdentifier();
+      if (!ident) {
+        return { tokens, error: "Selector dot segment must be an identifier." };
+      }
+      tokens.push(ident);
+      continue;
+    }
+
+    if (char === "[") {
+      cursor += 1;
+      while (selector[cursor] === " ") {
+        cursor += 1;
+      }
+      const quote = selector[cursor];
+      if (quote === "'" || quote === "\"") {
+        cursor += 1;
+        let value = "";
+        while (cursor < length) {
+          if (selector[cursor] === "\\" && cursor + 1 < length) {
+            value += selector[cursor + 1];
+            cursor += 2;
+            continue;
+          }
+          if (selector[cursor] === quote) {
+            break;
+          }
+          value += selector[cursor];
+          cursor += 1;
+        }
+        if (cursor >= length) {
+          return { tokens, error: "Selector has unterminated string literal." };
+        }
+        cursor += 1;
+        tokens.push(value);
+      } else {
+        const end = selector.indexOf("]", cursor);
+        if (end === -1) {
+          return { tokens, error: "Selector has unterminated bracket." };
+        }
+        const raw = selector.slice(cursor, end).trim();
+        if (!raw) {
+          return { tokens, error: "Selector has empty bracket segment." };
+        }
+        const num = Number(raw);
+        if (!Number.isNaN(num)) {
+          tokens.push(num);
+        } else if (isValidIdentifier(raw)) {
+          tokens.push(raw);
+        } else {
+          return { tokens, error: "Selector bracket segment must be a number or identifier." };
+        }
+        cursor = end;
+      }
+
+      while (cursor < length && selector[cursor] !== "]") {
+        if (selector[cursor] !== " ") {
+          return { tokens, error: "Selector has invalid bracket syntax." };
+        }
+        cursor += 1;
+      }
+      if (selector[cursor] !== "]") {
+        return { tokens, error: "Selector has unterminated bracket." };
+      }
+      cursor += 1;
+      continue;
+    }
+
+    return { tokens, error: "Selector contains invalid character." };
+  }
+
+  return { tokens, error: null };
+}
+
+function isValidIdentifier(value: string): boolean {
+  return /^[A-Za-z_$][\w$]*$/.test(value);
 }
 
 function resolvePath(value: unknown, tokens: Array<string | number>): unknown {

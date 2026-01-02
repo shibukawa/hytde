@@ -204,6 +204,41 @@ Configuration:
   - `end` (default): submit on `compositionend`
   - `blur`: submit on `blur` instead of `compositionend`
 
+## 4.2 Form state (autosave + leave guard)
+
+HyTDE supports autosave and leave-guard behavior via `hy-form-state`.
+
+Declaration string:
+```
+hy-form-state="mode: autosave-guard; duration: 500"
+```
+
+Supported keys:
+- `mode`: `autosave-guard`, `autosave`, `guard`, `off` (default).
+- `duration`: debounce in milliseconds for autosave (default 500).
+
+Eligibility:
+- The owner is the form if it has `hy-form-state`; otherwise the single submit action element with `hy-form-state`.
+- The form must also have a request trigger (`hy-get`/`hy-post`/`hy-put`/`hy-delete`) on the form or submit action element.
+
+Exclusions:
+- If an input-like control (`input`, `select`, `textarea`) inside the form has an action-triggered request (`hy-get`/`hy-post`/`hy-put`/`hy-delete`), HyTDE MUST emit an error and disable autosave/guard for that form (optimistic UI pattern).
+- `<hy-get>` elements used for candidate/preset retrieval remain allowed.
+
+Autosave:
+- On control changes, HyTDE snapshots the form after the debounce window and stores to `localStorage`.
+- Storage key: `{pathname}:{ownerId}` (query string excluded); missing `id` is an error and disables autosave.
+- Draft payload includes `savedAt` (UTC ISO string) and `data` (JSON form snapshot); file inputs are excluded.
+- When a request is triggered from the form or submit action, HyTDE clears the draft.
+
+Restore:
+- If a draft exists on load, HyTDE prompts: “YYYY-MM-DD HH:MM に送信せずに入力された値があります。復元しますか？”.
+- Restore runs only on confirmation; decline keeps the draft until an explicit clear.
+
+Leave guard:
+- When `mode` includes guard and the form is dirty, HyTDE prompts on navigation.
+- Canceling the prompt MUST prevent navigation.
+
 ## 5. Filling forms from data
 
 Some flows fetch a record and populate a form. HyTDE should support a simple, form-level mechanism to fill descendant controls from a selected object.

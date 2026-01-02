@@ -12,7 +12,8 @@
     <main>
       <h1>User (mocked)</h1>
 
-      <section hy-get="/api/users/{hyParams.userId}" hy-store="current">
+      <hy-get src="/api/users/{hyParams.userId}" store="current"></hy-get>
+      <section>
         <p><strong>Name:</strong> <span hy="current.user.name |> capital">name</span></p>
         <p><strong>Email:</strong> <span hy="current.user.email">email</span></p>
       </section>

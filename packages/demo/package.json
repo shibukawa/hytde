@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/copy-msw-worker.mjs",
     "dev": "vite",
+    "prebuild": "node ../../scripts/copy-msw-worker.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "echo \"no tests\""
@@ -14,6 +16,7 @@
     "@hytde/runtime": "0.0.0"
   },
   "devDependencies": {
-    "@hytde/vite-plugin": "0.0.0"
+    "@hytde/vite-plugin": "0.0.0",
+    "msw": "^2.3.1"
   }
 }

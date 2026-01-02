@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/debug-auto/index.js"
     },
+    "./debug-api": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/debug-manual/index.js"
+    },
     "./no-auto": {
       "types": "./dist/index.d.ts",
       "default": "./dist/production-manual/index.js"
@@ -19,7 +23,8 @@
     "./no-auto-debug": {
       "types": "./dist/index.d.ts",
       "default": "./dist/debug-manual/index.js"
-    }
+    },
+    "./mockServiceWorker.js": "./dist/mockServiceWorker.js"
   },
   "files": [
     "dist"
@@ -30,6 +35,7 @@
   },
   "dependencies": {
     "@hytde/runtime": "0.0.0",
-    "@hytde/parser": "0.0.0"
+    "@hytde/parser": "0.0.0",
+    "msw": "^2.3.1"
   }
 }

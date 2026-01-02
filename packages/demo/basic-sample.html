@@ -113,7 +113,8 @@
               id="render-output"
               class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm"
             >
-              <section class="space-y-2" hy-get="/api/users/100" hy-store="current">
+              <section class="space-y-2">
+                <hy-get src="/api/users/100" store="current"></hy-get>
                 <h3 class="text-xl font-semibold" hy="current.user.name |> capital">Name</h3>
                 <p class="text-sm">
                   <strong>Email:</strong>
@@ -158,7 +159,8 @@
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
-<section class="space-y-2" hy-get="/api/users/100" hy-store="current">
+<section class="space-y-2">
+  <hy-get src="/api/users/100" store="current"></hy-get>
   <h3 class="text-xl font-semibold" hy="current.user.name |> capital">Name</h3>
   <p class="text-sm">
     <strong>Email:</strong>

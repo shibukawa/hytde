@@ -1,6 +1,7 @@
 export type ExecutionMode = "production" | "mock" | "disable";
 
 export interface MockRule {
+  rawPattern: string;
   pattern: RegExp;
   path: string;
   method: string;
@@ -57,6 +58,8 @@ export interface RequestTarget {
   trigger: "startup" | "submit" | "action";
   form: HTMLFormElement | null;
   fillInto: string | null;
+  fillTarget: string | null;
+  fillValue: string | null;
 }
 
 export interface TextBinding {
@@ -71,8 +74,15 @@ export interface AttrBinding {
   template: string;
 }
 
+export interface IfChainNode {
+  node: Element;
+  kind: "if" | "else-if" | "else";
+  expression: string | null;
+}
+
 export interface IfChain {
-  nodes: Element[];
+  anchor: Comment;
+  nodes: IfChainNode[];
 }
 
 export interface ParsedSubtree {
@@ -83,41 +93,51 @@ export interface ParsedSubtree {
   textBindings: TextBinding[];
   attrBindings: AttrBinding[];
   fillTargets: FillTarget[];
+  fillActions: FillAction[];
 }
 
 export interface ParsedDocument extends ParsedSubtree {
   doc: Document;
   executionMode: ExecutionMode;
   mockRules: MockRule[];
+  parseErrors: ParseError[];
   requestTargets: RequestTarget[];
   importTargets: ImportTarget[];
   handlesErrors: boolean;
   hasErrorPopover: boolean;
 }
 
+export interface ParseError {
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
 export function parseDocument(doc: Document): ParsedDocument {
+  const parseErrors: ParseError[] = [];
   const { handlesErrors, hasErrorPopover } = detectErrorHandling(doc);
   return {
     doc,
     executionMode: getExecutionMode(doc),
     mockRules: parseMockRules(doc),
-    requestTargets: parseRequestTargets(doc),
+    parseErrors,
+    requestTargets: parseRequestTargets(doc, parseErrors),
     importTargets: parseImportTargets(doc),
     handlesErrors,
     hasErrorPopover,
-    ...parseSubtree(doc)
+    ...parseSubtree(doc, parseErrors)
   };
 }
 
-export function parseSubtree(root: ParentNode): ParsedSubtree {
+export function parseSubtree(root: ParentNode, parseErrors: ParseError[] = []): ParsedSubtree {
   const dummyElements = selectWithRoot(root, "[hy-dummy]");
   const cloakElements = selectWithRoot(root, "[hy-cloak]");
-  const forTemplates = parseForTemplates(root);
+  const forTemplates = parseForTemplates(root, parseErrors);
   const ifChains = parseIfChains(root);
   const textBindings = parseTextBindings(root);
   const attrBindings = parseAttrBindings(root);
   const hrefBindings = parseHrefBindings(root);
   const fillTargets = parseFillTargets(root);
+  const fillActions = parseFillActions(root);
 
   return {
     dummyElements,
@@ -126,13 +146,23 @@ export function parseSubtree(root: ParentNode): ParsedSubtree {
     ifChains,
     textBindings,
     attrBindings: [...attrBindings, ...hrefBindings],
-    fillTargets
+    fillTargets,
+    fillActions
   };
 }
 
 export interface FillTarget {
   form: HTMLFormElement;
   selector: string;
+}
+
+export interface FillAction {
+  element: Element;
+  selector: string;
+  value: string | null;
+  form: HTMLFormElement | null;
+  command: string | null;
+  commandFor: string | null;
 }
 
 export interface ParsedHtml {
@@ -252,6 +282,7 @@ function parseMockContent(content: string): MockRule | null {
   }
 
   return {
+    rawPattern: pattern,
     pattern: patternToRegex(pattern),
     path,
     method,
@@ -279,7 +310,7 @@ function patternToRegex(pattern: string): RegExp {
   return new RegExp(`^${wildcard}$`);
 }
 
-function parseRequestTargets(doc: Document): RequestTarget[] {
+function parseRequestTargets(doc: Document, parseErrors: ParseError[]): RequestTarget[] {
   const elements = Array.from(doc.querySelectorAll("[hy-get],[hy-post],[hy-put],[hy-patch],[hy-delete]"));
   const targets: RequestTarget[] = [];
 
@@ -289,11 +320,16 @@ function parseRequestTargets(doc: Document): RequestTarget[] {
       continue;
     }
     const urlTemplate = element.getAttribute(methodAttr.attr);
-    const store = element.getAttribute("hy-store");
+    const storeRaw = element.getAttribute("hy-store");
+    let store = storeRaw?.trim() ?? null;
     const unwrap = element.getAttribute("hy-unwrap");
+    const fillTarget = element.getAttribute("hy-fill");
+    const fillValue = element.getAttribute("hy-value");
     element.removeAttribute(methodAttr.attr);
     element.removeAttribute("hy-store");
     element.removeAttribute("hy-unwrap");
+    element.removeAttribute("hy-fill");
+    element.removeAttribute("hy-value");
     element.removeAttribute("hy-get");
     element.removeAttribute("hy-post");
     element.removeAttribute("hy-put");
@@ -301,6 +337,20 @@ function parseRequestTargets(doc: Document): RequestTarget[] {
     element.removeAttribute("hy-delete");
     if (!urlTemplate) {
       continue;
+    }
+    if (store) {
+      if (!isValidIdentifier(store)) {
+        parseErrors.push({
+          message: "hy-store must be a valid identifier.",
+          detail: { store: storeRaw }
+        });
+        store = null;
+      }
+    } else if (storeRaw && !store) {
+      parseErrors.push({
+        message: "hy-store must be a valid identifier.",
+        detail: { store: storeRaw }
+      });
     }
     const isForm = element instanceof HTMLFormElement;
     const isSubmitter = isSubmitControl(element);
@@ -328,15 +378,17 @@ function parseRequestTargets(doc: Document): RequestTarget[] {
       isForm,
       trigger,
       form,
-      fillInto: null
+      fillInto: null,
+      fillTarget,
+      fillValue
     });
   }
 
-  const tagTargets = parseGetTagTargets(doc);
+  const tagTargets = parseGetTagTargets(doc, parseErrors);
   targets.push(...tagTargets);
-  targets.push(...parseStreamTargets(doc));
-  targets.push(...parseSseTargets(doc));
-  targets.push(...parsePollingTargets(doc));
+  targets.push(...parseStreamTargets(doc, parseErrors));
+  targets.push(...parseSseTargets(doc, parseErrors));
+  targets.push(...parsePollingTargets(doc, parseErrors));
 
   return targets;
 }
@@ -373,23 +425,45 @@ function getSubmitterForm(element: HTMLButtonElement | HTMLInputElement): HTMLFo
   return element.form ?? (element.closest("form") as HTMLFormElement | null);
 }
 
-function isActionElement(element: Element): element is HTMLButtonElement | HTMLInputElement {
-  return element instanceof HTMLButtonElement || element instanceof HTMLInputElement;
+function isActionElement(
+  element: Element
+): element is HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement {
+  return (
+    element instanceof HTMLButtonElement ||
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement
+  );
 }
 
-function parseGetTagTargets(doc: Document): RequestTarget[] {
+function parseGetTagTargets(doc: Document, parseErrors: ParseError[]): RequestTarget[] {
   const elements = Array.from(doc.querySelectorAll("hy-get"));
   const targets: RequestTarget[] = [];
 
   for (const element of elements) {
     const src = element.getAttribute("src");
-    const store = element.getAttribute("store");
+    const storeRaw = element.getAttribute("store");
+    let store = storeRaw?.trim() ?? null;
     const unwrap = element.getAttribute("unwrap");
     const fillInto = element.getAttribute("fill-into");
     const parent = element.parentElement;
     element.remove();
     if (!src || !parent) {
       continue;
+    }
+    if (store) {
+      if (!isValidIdentifier(store)) {
+        parseErrors.push({
+          message: "store must be a valid identifier.",
+          detail: { store: storeRaw }
+        });
+        store = null;
+      }
+    } else if (storeRaw && !store) {
+      parseErrors.push({
+        message: "store must be a valid identifier.",
+        detail: { store: storeRaw }
+      });
     }
 
     targets.push({
@@ -406,20 +480,23 @@ function parseGetTagTargets(doc: Document): RequestTarget[] {
       isForm: false,
       trigger: "startup",
       form: null,
-      fillInto
+      fillInto,
+      fillTarget: null,
+      fillValue: null
     });
   }
 
   return targets;
 }
 
-function parseStreamTargets(doc: Document): RequestTarget[] {
+function parseStreamTargets(doc: Document, parseErrors: ParseError[]): RequestTarget[] {
   const elements = Array.from(doc.querySelectorAll("hy-get-stream"));
   const targets: RequestTarget[] = [];
 
   for (const element of elements) {
     const urlTemplate = element.getAttribute("src");
-    const store = element.getAttribute("store");
+    const storeRaw = element.getAttribute("store");
+    let store = storeRaw?.trim() ?? null;
     const unwrap = element.getAttribute("unwrap");
     const streamInitial = parseStreamInitial(element);
     const streamTimeoutMs = parseStreamTimeout(element);
@@ -428,6 +505,20 @@ function parseStreamTargets(doc: Document): RequestTarget[] {
     element.remove();
     if (!urlTemplate || !parent) {
       continue;
+    }
+    if (store) {
+      if (!isValidIdentifier(store)) {
+        parseErrors.push({
+          message: "store must be a valid identifier.",
+          detail: { store: storeRaw }
+        });
+        store = null;
+      }
+    } else if (storeRaw && !store) {
+      parseErrors.push({
+        message: "store must be a valid identifier.",
+        detail: { store: storeRaw }
+      });
     }
 
     targets.push({
@@ -444,20 +535,23 @@ function parseStreamTargets(doc: Document): RequestTarget[] {
       isForm: false,
       trigger: "startup",
       form: null,
-      fillInto: null
+      fillInto: null,
+      fillTarget: null,
+      fillValue: null
     });
   }
 
   return targets;
 }
 
-function parseSseTargets(doc: Document): RequestTarget[] {
+function parseSseTargets(doc: Document, parseErrors: ParseError[]): RequestTarget[] {
   const elements = Array.from(doc.querySelectorAll("hy-sse"));
   const targets: RequestTarget[] = [];
 
   for (const element of elements) {
     const urlTemplate = element.getAttribute("src");
-    const store = element.getAttribute("store");
+    const storeRaw = element.getAttribute("store");
+    let store = storeRaw?.trim() ?? null;
     const unwrap = element.getAttribute("unwrap");
     const streamInitial = parseStreamInitial(element);
     const streamTimeoutMs = parseStreamTimeout(element);
@@ -466,6 +560,20 @@ function parseSseTargets(doc: Document): RequestTarget[] {
     element.remove();
     if (!urlTemplate || !parent) {
       continue;
+    }
+    if (store) {
+      if (!isValidIdentifier(store)) {
+        parseErrors.push({
+          message: "store must be a valid identifier.",
+          detail: { store: storeRaw }
+        });
+        store = null;
+      }
+    } else if (storeRaw && !store) {
+      parseErrors.push({
+        message: "store must be a valid identifier.",
+        detail: { store: storeRaw }
+      });
     }
 
     targets.push({
@@ -482,7 +590,9 @@ function parseSseTargets(doc: Document): RequestTarget[] {
       isForm: false,
       trigger: "startup",
       form: null,
-      fillInto: null
+      fillInto: null,
+      fillTarget: null,
+      fillValue: null
     });
   }
 
@@ -521,19 +631,34 @@ function parseStreamKey(element: Element): string | null {
   return raw.trim() || null;
 }
 
-function parsePollingTargets(doc: Document): RequestTarget[] {
+function parsePollingTargets(doc: Document, parseErrors: ParseError[]): RequestTarget[] {
   const elements = Array.from(doc.querySelectorAll("hy-get-polling"));
   const targets: RequestTarget[] = [];
 
   for (const element of elements) {
     const urlTemplate = element.getAttribute("src");
-    const store = element.getAttribute("store");
+    const storeRaw = element.getAttribute("store");
+    let store = storeRaw?.trim() ?? null;
     const unwrap = element.getAttribute("unwrap");
     const pollIntervalMs = parsePollingInterval(element);
     const parent = element.parentElement;
     element.remove();
     if (!urlTemplate || !parent) {
       continue;
+    }
+    if (store) {
+      if (!isValidIdentifier(store)) {
+        parseErrors.push({
+          message: "store must be a valid identifier.",
+          detail: { store: storeRaw }
+        });
+        store = null;
+      }
+    } else if (storeRaw && !store) {
+      parseErrors.push({
+        message: "store must be a valid identifier.",
+        detail: { store: storeRaw }
+      });
     }
 
     targets.push({
@@ -550,7 +675,9 @@ function parsePollingTargets(doc: Document): RequestTarget[] {
       isForm: false,
       trigger: "startup",
       form: null,
-      fillInto: null
+      fillInto: null,
+      fillTarget: null,
+      fillValue: null
     });
   }
 
@@ -773,7 +900,7 @@ function ensureUniqueIds(nodes: Element[], doc: Document): void {
   }
 }
 
-function parseForTemplates(root: ParentNode): ForTemplate[] {
+function parseForTemplates(root: ParentNode, parseErrors: ParseError[]): ForTemplate[] {
   const elements = selectWithRoot(root, "[hy-for]");
   const templates: ForTemplate[] = [];
 
@@ -781,6 +908,17 @@ function parseForTemplates(root: ParentNode): ForTemplate[] {
     const expression = element.getAttribute("hy-for") ?? "";
     const config = parseForExpression(expression);
     if (!config) {
+      parseErrors.push({
+        message: "hy-for must be in `item of items` form with valid identifiers.",
+        detail: { expression }
+      });
+      continue;
+    }
+    if (!isValidSelectorSyntax(config.selector)) {
+      parseErrors.push({
+        message: "hy-for selector is invalid.",
+        detail: { selector: config.selector, expression }
+      });
       continue;
     }
 
@@ -820,10 +958,98 @@ function parseForExpression(expression: string): { varName: string; selector: st
   };
 }
 
+function isValidSelectorSyntax(selector: string): boolean {
+  if (!selector) {
+    return false;
+  }
+  let cursor = 0;
+  const length = selector.length;
+
+  const readIdentifier = (): boolean => {
+    const match = selector.slice(cursor).match(/^([A-Za-z_$][\w$]*)/);
+    if (!match) {
+      return false;
+    }
+    cursor += match[1].length;
+    return true;
+  };
+
+  if (!readIdentifier()) {
+    return false;
+  }
+
+  while (cursor < length) {
+    const char = selector[cursor];
+    if (char === ".") {
+      cursor += 1;
+      if (!readIdentifier()) {
+        return false;
+      }
+      continue;
+    }
+
+    if (char === "[") {
+      cursor += 1;
+      while (selector[cursor] === " ") {
+        cursor += 1;
+      }
+      const quote = selector[cursor];
+      if (quote === "'" || quote === "\"") {
+        cursor += 1;
+        while (cursor < length) {
+          if (selector[cursor] === "\\" && cursor + 1 < length) {
+            cursor += 2;
+            continue;
+          }
+          if (selector[cursor] === quote) {
+            break;
+          }
+          cursor += 1;
+        }
+        if (cursor >= length) {
+          return false;
+        }
+        cursor += 1;
+      } else {
+        const end = selector.indexOf("]", cursor);
+        if (end === -1) {
+          return false;
+        }
+        const raw = selector.slice(cursor, end).trim();
+        if (!raw) {
+          return false;
+        }
+        cursor = end;
+      }
+
+      while (cursor < length && selector[cursor] !== "]") {
+        cursor += 1;
+      }
+      if (selector[cursor] !== "]") {
+        return false;
+      }
+      cursor += 1;
+      continue;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
+function isValidIdentifier(value: string): boolean {
+  return /^[A-Za-z_$][\w$]*$/.test(value);
+}
+
 function parseIfChains(root: ParentNode): IfChain[] {
   const ifElements = selectWithRoot(root, "[hy-if]");
   const processed = new WeakSet<Element>();
   const chains: IfChain[] = [];
+  const doc = root instanceof Document ? root : root.ownerDocument;
+  if (!doc) {
+    return chains;
+  }
 
   for (const element of ifElements) {
     if (processed.has(element)) {
@@ -863,7 +1089,29 @@ function parseIfChains(root: ParentNode): IfChain[] {
       processed.add(node);
     }
 
-    chains.push({ nodes: chain });
+    const parent = element.parentNode;
+    if (!parent) {
+      continue;
+    }
+    const anchor = doc.createComment("hy-if");
+    parent.insertBefore(anchor, element);
+    const nodes = chain.map((node) => {
+      let kind: "if" | "else-if" | "else" = "else";
+      let expression: string | null = null;
+      if (node.hasAttribute("hy-if")) {
+        kind = "if";
+        expression = node.getAttribute("hy-if") ?? "";
+      } else if (node.hasAttribute("hy-else-if")) {
+        kind = "else-if";
+        expression = node.getAttribute("hy-else-if") ?? "";
+      }
+      node.removeAttribute("hy-if");
+      node.removeAttribute("hy-else-if");
+      node.removeAttribute("hy-else");
+      return { node, kind, expression };
+    });
+
+    chains.push({ anchor, nodes });
   }
 
   return chains;
@@ -939,6 +1187,39 @@ function parseFillTargets(root: ParentNode): FillTarget[] {
   }
 
   return targets;
+}
+
+function parseFillActions(root: ParentNode): FillAction[] {
+  const elements = selectWithRoot(root, "[hy-fill]");
+  const actions: FillAction[] = [];
+
+  for (const element of elements) {
+    const selector = element.getAttribute("hy-fill");
+    const value = element.getAttribute("hy-value");
+    const command = element.getAttribute("command");
+    const commandFor = element.getAttribute("commandfor");
+    element.removeAttribute("hy-fill");
+    element.removeAttribute("hy-value");
+    element.removeAttribute("command");
+    element.removeAttribute("commandfor");
+    if (!selector) {
+      continue;
+    }
+    if (element instanceof HTMLFormElement) {
+      continue;
+    }
+    const form = element.closest("form");
+    actions.push({
+      element,
+      selector,
+      value,
+      form: form instanceof HTMLFormElement ? form : null,
+      command,
+      commandFor
+    });
+  }
+
+  return actions;
 }
 
 function detectErrorHandling(doc: Document): { handlesErrors: boolean; hasErrorPopover: boolean } {

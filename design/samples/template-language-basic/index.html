@@ -10,9 +10,10 @@
     <main>
       <h1>User</h1>
 
-      <section hy-get="/api/users/{hyParams.userId}" hy-store="current">
-        <!-- hy-schema: { "type": "object", "required": ["user"], "properties": { "user": { "type": "object", "required": ["name", "email"], "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "createdAt": { "type": ["string","null"] }, "isAdmin": { "type": ["boolean","null"] }, "isStaff": { "type": ["boolean","null"] }, "teams": { "type": ["array","null"] }, "profileUrl": { "type": ["string","null"] } } } } } -->
-        <!-- hy-get-dummy: { "user": { "id": 1, "name": "Alice", "email": "alice@example.com", "createdAt": "2025-12-01T10:20:30Z", "isAdmin": false, "isStaff": true, "teams": [{ "name": "Core" }, { "name": "Platform" }], "profileUrl": "/users/1" } } -->
+      <hy-get src="/api/users/{hyParams.userId}" store="current"></hy-get>
+      <!-- hy-schema: { "type": "object", "required": ["user"], "properties": { "user": { "type": "object", "required": ["name", "email"], "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "createdAt": { "type": ["string","null"] }, "isAdmin": { "type": ["boolean","null"] }, "isStaff": { "type": ["boolean","null"] }, "teams": { "type": ["array","null"] }, "profileUrl": { "type": ["string","null"] } } } } } -->
+      <!-- hy-get-dummy: { "user": { "id": 1, "name": "Alice", "email": "alice@example.com", "createdAt": "2025-12-01T10:20:30Z", "isAdmin": false, "isStaff": true, "teams": [{ "name": "Core" }, { "name": "Platform" }], "profileUrl": "/users/1" } } -->
+      <section>
         <p>
           <strong>Name:</strong>
           <span hy="current.user.name">name</span>

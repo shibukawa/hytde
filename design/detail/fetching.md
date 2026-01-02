@@ -50,6 +50,8 @@ Note:
 Attribute form requests on action elements are user-driven and run on interaction:
 - `<button hy-get="...">` fires on click.
 - `<input hy-get="...">` fires on input/change (debounced when `hy-debounce` is present).
+- `<textarea hy-get="...">` fires on input/change (debounced when `hy-debounce` is present).
+- `<select hy-get="...">` fires on change.
 - `<form hy-post="...">` fires on submit (existing behavior).
 
 Use cases beyond form submit:
@@ -74,6 +76,18 @@ Live query example:
 ```
 - `[value]` interpolates the current input value (percent-encoded).
 - The request runs first; the popover command runs after store update and re-render.
+
+### 0.3.1 Cascading select resets (drill-down)
+
+When a request writes a replacement dataset for a select (via `hy-store`), HyTDE applies cascading reset behavior:
+- Reset the select to the empty option (`value=""`) if present; otherwise clear the selection.
+- Emit a `change` event after reset so downstream action-triggered requests see the new value.
+- Clear downstream option datasets by writing `[]` to the `hy-store` namespaces owned by dependent selects.
+- Disable dependent selects while their option dataset request is in flight, and re-enable after the dataset write completes.
+
+Dependency inference (v1):
+- A select is treated as dependent when its request URL interpolates an upstream select value.
+- The dependent select’s dataset is the `hy-store` namespace written by its request.
 
 ### 0.4 Form submission encoding (non-GET)
 
@@ -174,7 +188,23 @@ When `hy-mode=mock` and a HyTDE request is about to be issued (`hy-get`, `hy-pos
 
 If no rule matches, HyTDE performs a real network fetch as usual.
 
-### 2.4 Streaming mocks (hy-get-stream / hy-sse)
+### 2.4 MSW-backed mocking (hy.mockServiceWorker)
+
+HyTDE's mock engine is backed by Mock Service Worker (MSW) in mock mode.
+
+Behavior:
+- `meta[name="hy-mock"]` rules are converted into MSW handlers during mock initialization.
+- `hy.mockServiceWorker(...handlers)` registers additional MSW handlers; these handlers are registered first and take precedence over meta-derived handlers.
+- The mock registration script is separated from the main runtime script and marked with `hy-debug` so build optimizers can strip it.
+- For each intercepted request, HyTDE emits `console.debug` logs:
+  - `request:match` with method, URL, mocked=true.
+  - `request:unhandled` with method, URL, mocked=false.
+
+Production:
+- `hy.mockServiceWorker` exists, but does not enable mocks and logs: "Mocking is disabled in production."
+- Production bundles include MSW types only; MSW runtime code is not bundled.
+
+### 2.5 Streaming mocks (hy-get-stream / hy-sse)
 
 For streaming directives, mock payloads are treated as arrays where each element is delivered one-by-one.
 
@@ -188,7 +218,7 @@ Behavior:
 - `delay` controls the interval between items (default 200ms if not set).
 - This applies to both `hy-get-stream` and `hy-sse` in mock mode.
 
-### 2.5 Tag form for stream / SSE / polling
+### 2.6 Tag form for stream / SSE / polling
 
 Streaming and SSE use tag form (like `<hy-get>`). Options remove the `hy-` prefix.
 
@@ -202,12 +232,12 @@ Polling:
 <hy-get-polling src="/api/summary" store="summary" interval="1000"></hy-get-polling>
 ```
 
-### 2.6 Polling mock behavior
+### 2.7 Polling mock behavior
 - Mock payloads for polling are arrays.
 - Each interval consumes the next element.
 - `null` values are treated as "no content" (no store update).
 
-### 2.4 Sharing across files/pages
+### 2.8 Sharing across files/pages
 
 Because `hy-get` requests are deduped, using a single mock rule for a URL will automatically serve all matching `hy-get` usages in the same scope.
 

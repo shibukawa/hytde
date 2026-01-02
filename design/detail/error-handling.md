@@ -17,6 +17,7 @@ HyTDE SHOULD emit errors for:
 - **Missing pipeline transform**: transform name not registered.
 - **Invalid `hy-for` syntax**: cannot parse `x of y`.
 - **Missing data path**: selector resolves to `null` because a property/key is absent.
+- **Cascade dependency cycles**: inferred drill-down dependencies form a loop (e.g. A -> B -> A).
 
 Notes:
 - Missing data paths are not fatal; binding output is `""` or `null` per binding rules.
