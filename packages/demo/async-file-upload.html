@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <title>HyTDE Async File Upload</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+  </head>
+  <body hy-cloak style="display: none;" class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-4 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 class="text-3xl font-semibold">HyTDE Async File Upload</h1>
+            <p class="text-sm opacity-70">Chunked uploads with async finalize + JSON submit.</p>
+          </div>
+          <div class="badge badge-outline">Step 5</div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-2">
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Source</h2>
+              <div role="tablist" class="tabs tabs-boxed">
+                <button class="tab tab-active" data-tab="html" type="button">HTML</button>
+                <button class="tab" data-tab="json" type="button">JSON (Mocks)</button>
+              </div>
+            </div>
+            <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  CDN Import
+                </div>
+                <pre
+                  id="source-cdn"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading CDN snippet...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  Inline Script
+                </div>
+                <pre
+                  id="source-script"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading script...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  HTML
+                </div>
+                <pre
+                  id="source-html"
+                  class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading source...</pre>
+              </div>
+            </div>
+            <div
+              id="source-json-blocks"
+              data-tab-panel="json"
+              class="hidden rounded-lg border border-base-300 bg-base-200 p-3"
+            >
+              <pre
+                id="source-json"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Loading JSON...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Transformed HTML</h2>
+            <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="transformed-html"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Waiting for first render...</pre
+              >
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Rendered Output</h2>
+            <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
+              <section class="space-y-6">
+                <form
+                  id="s3-upload-form"
+                  class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
+                  action="/api/uploads/submit/s3"
+                  method="post"
+                  enctype="multipart/form-data"
+                  hy-async-upload="s3"
+                  hy-uploader-url="/api/uploads/s3"
+                  hy-file-chunksize="10"
+                  hy-post="/api/uploads/submit/s3"
+                  hy-store="s3Result"
+                >
+                  <h3 class="text-lg font-semibold">S3 Multipart Upload</h3>
+                  <p class="mt-1 text-xs text-base-content/60">
+                    Uploads start on file select; submit waits for finalize.
+                  </p>
+                  <div class="mt-4 grid gap-3 md:grid-cols-2">
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Title
+                      <input class="input input-bordered w-full text-sm" name="title" placeholder="Quarterly report" />
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Category
+                      <select class="select select-bordered text-sm" name="category">
+                        <option value="">Pick one</option>
+                        <option value="finance">Finance</option>
+                        <option value="product">Product</option>
+                        <option value="ops">Operations</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                    File
+                    <input class="file-input file-input-bordered file-input-sm" name="file" type="file" required />
+                  </label>
+                  <button class="btn btn-primary btn-sm mt-4" type="submit">Submit (S3)</button>
+                </form>
+
+                <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+                  <div class="flex items-center justify-between text-xs text-base-content/60">
+                    <span>S3 Submission</span>
+                    <span>Latest response</span>
+                  </div>
+                  <div class="mt-2 space-y-1 text-xs" hy-if="s3Result">
+                    <div>
+                      File ID:
+                      <span class="font-mono" hy="s3Result.file.fileId">file_demo_001</span>
+                    </div>
+                    <div>
+                      Title:
+                      <span hy="s3Result.title">Quarterly report</span>
+                    </div>
+                  </div>
+                  <p class="mt-2 text-xs opacity-60" hy-else hy-dummy>Submit to see the payload.</p>
+                </section>
+
+                <form
+                  id="simple-upload-form"
+                  class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
+                  action="/api/uploads/submit/simple"
+                  method="post"
+                  enctype="multipart/form-data"
+                  hy-async-upload
+                  hy-uploader-url="/api/uploads/simple"
+                  hy-post="/api/uploads/submit/simple"
+                  hy-store="simpleResult"
+                >
+                  <h3 class="text-lg font-semibold">Simple Multipart Upload</h3>
+                  <p class="mt-1 text-xs text-base-content/60">
+                    Single XHR multipart with progress; no chunking/finalize.
+                  </p>
+                  <div class="mt-4 grid gap-3 md:grid-cols-2">
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Title
+                      <input class="input input-bordered w-full text-sm" name="title" placeholder="Customer guide" />
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                      Visibility
+                      <select class="select select-bordered text-sm" name="visibility">
+                        <option value="">Pick one</option>
+                        <option value="public">Public</option>
+                        <option value="team">Team only</option>
+                        <option value="private">Private</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+                    File
+                    <input class="file-input file-input-bordered file-input-sm" name="file" type="file" required />
+                  </label>
+                  <button class="btn btn-secondary btn-sm mt-4" type="submit">Submit (Simple)</button>
+                </form>
+
+                <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+                  <div class="flex items-center justify-between text-xs text-base-content/60">
+                    <span>Simple Submission</span>
+                    <span>Latest response</span>
+                  </div>
+                  <div class="mt-2 space-y-1 text-xs" hy-if="simpleResult">
+                    <div>
+                      File ID:
+                      <span class="font-mono" hy="simpleResult.file.fileId">file_demo_simple_010</span>
+                    </div>
+                    <div>
+                      Title:
+                      <span hy="simpleResult.title">Customer guide</span>
+                    </div>
+                  </div>
+                  <p class="mt-2 text-xs opacity-60" hy-else hy-dummy>Submit to see the payload.</p>
+                </section>
+
+                <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+                  <div class="flex items-center justify-between text-xs text-base-content/60">
+                    <span>Upload Queue</span>
+                    <span class="badge badge-outline">hy.uploading</span>
+                  </div>
+                  <p class="mt-2 text-xs opacity-60" hy-if="hy.uploading.length">Active uploads</p>
+                  <p class="mt-2 text-xs opacity-60" hy-else hy-dummy>No uploads yet.</p>
+                  <ul class="mt-3 space-y-3 text-xs">
+                    <li hy-dummy>
+                      <div class="flex items-center justify-between">
+                        <span>dummy-report.pdf</span>
+                        <span class="badge badge-ghost">uploading</span>
+                      </div>
+                      <progress class="progress progress-primary w-full" max="1" value="0.5"></progress>
+                      <div class="mt-1 text-[11px] text-base-content/50">3 / 6 chunks</div>
+                    </li>
+                    <li hy-for="u of hy.uploading">
+                      <div class="flex items-center justify-between">
+                        <span>
+                          <span class="font-semibold" hy="u.fileName">file.bin</span>
+                          <span class="text-[11px] text-base-content/50" hy="u.formId">s3-upload-form</span>
+                        </span>
+                        <span class="badge badge-ghost" hy="u.status">uploading</span>
+                      </div>
+                  <progress
+                    class="progress progress-primary w-full"
+                    max="1"
+                    hy-attr-value="u.progress"
+                  ></progress>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    class="range range-xs mt-1"
+                    hy-attr-value="u.progress"
+                  />
+                      <div class="mt-1 text-[11px] text-base-content/50">
+                        <span hy="u.uploadedChunks">0</span> / <span hy="u.totalChunks">0</span> chunks
+                      </div>
+                      <div class="mt-1 text-[11px] text-error" hy-if="u.lastError" hy="u.lastError"></div>
+                    </li>
+                  </ul>
+                </section>
+              </section>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Runtime Log</h2>
+            <div
+              id="runtime-log"
+              class="rounded-lg border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed"
+            >
+              <div class="opacity-60">Log entries will appear here.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script type="module" hy-debug>
+      import { http, HttpResponse } from "msw";
+      import "@hytde/standalone/debug-api";
+
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      const normalizeToken = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const buildUploadId = (uploadUuid, inputName) =>
+        `s3-${normalizeToken(uploadUuid)}-${normalizeToken(inputName)}`;
+      const buildS3Path = (uploadUuid, inputName, fileName = "file.bin") =>
+        `/s3/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
+      const buildSimplePath = (uploadUuid, inputName, fileName = "file.bin") =>
+        `/simple/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
+
+      globalThis.hy.mockServiceWorker(
+        http.post("/api/uploads/s3/init", async ({ request }) => {
+          const body = await request.json();
+          const uploadUuid = String(body?.uploadUuid ?? "");
+          const files = Array.isArray(body?.files) ? body.files : [];
+          const uploads = files.map((file) => {
+            const inputName = String(file?.inputName ?? "file");
+            const chunks = Number(file?.chunks ?? 1);
+            const fileName = String(file?.fileName ?? "file.bin");
+            return {
+              inputName,
+              uploadId: buildUploadId(uploadUuid, inputName),
+              s3Path: buildS3Path(uploadUuid, inputName, fileName),
+              parts: Array.from({ length: Math.max(1, chunks) }, (_, index) => ({
+                partNumber: index + 1,
+                url: `/api/uploads/s3/part/${uploadUuid}/${encodeURIComponent(inputName)}/${index + 1}`
+              }))
+            };
+          });
+          await sleep(150);
+          return HttpResponse.json({ uploads });
+        }),
+        http.put("/api/uploads/s3/part/:uploadUuid/:inputName/:part", async ({ params }) => {
+          await sleep(1000);
+          return new HttpResponse(null, {
+            status: 200,
+            headers: {
+              ETag: `etag-${params.part}`
+            }
+          });
+        }),
+        http.post("/api/uploads/s3/complete", async ({ request }) => {
+          const body = await request.json();
+          const uploadUuid = String(body?.uploadUuid ?? "upload");
+          const uploads = Array.isArray(body?.uploads) ? body.uploads : [];
+          const files = uploads.map((upload, index) => {
+            const inputName = String(upload?.inputName ?? "file");
+            const s3Path =
+              (typeof upload?.path === "string" && upload.path.length > 0
+                ? upload.path
+                : typeof upload?.s3Path === "string" && upload.s3Path.length > 0
+                  ? upload.s3Path
+                  : buildS3Path(uploadUuid, inputName, `file-${index + 1}`)) ?? "";
+            return {
+              inputName,
+              fileId: s3Path,
+              s3Path,
+              etags: Array.isArray(upload?.parts)
+                ? upload.parts
+                    .map((part) => part?.ETag ?? part?.etag ?? null)
+                    .filter((etag) => typeof etag === "string" && etag.length > 0)
+                : []
+            };
+          });
+          await sleep(200);
+          return HttpResponse.json({ files });
+        }),
+        http.post("/api/uploads/simple", async ({ request }) => {
+          const formData = await request.formData();
+          const uploadUuid = String(formData.get("uploadUuid") ?? "upload");
+          const inputName = String(formData.get("inputName") ?? "file");
+          const fileName = String(formData.get("fileName") ?? "file.bin");
+          const path = buildSimplePath(uploadUuid, inputName, fileName);
+          await sleep(150);
+          return HttpResponse.json({ inputName, path });
+        }),
+        http.post("/api/uploads/submit/:mode", async ({ request, params }) => {
+          let payload;
+          const contentType = request.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            payload = await request.json();
+          } else if (contentType.includes("multipart/form-data")) {
+            const formData = await request.formData();
+            payload = Object.fromEntries(formData.entries());
+          } else {
+            payload = { raw: await request.text() };
+          }
+          return HttpResponse.json(payload ?? { mode: params.mode });
+        })
+      );
+    </script>
+    <script type="module">
+      import { init } from "@hytde/standalone";
+      // start-script
+      init();
+      // end-script
+    </script>
+    <template id="source-inline-script">
+      // start-script
+      init();
+      // end-script
+    </template>
+    <script type="text/plain" id="source-html-template">
+<section class="space-y-6">
+  <form
+    id="s3-upload-form"
+    class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
+    action="/api/uploads/submit/s3"
+    method="post"
+    enctype="multipart/form-data"
+    hy-async-upload="s3"
+    hy-uploader-url="/api/uploads/s3"
+    hy-file-chunksize="10"
+    hy-post="/api/uploads/submit/s3"
+    hy-store="s3Result"
+  >
+    <h3 class="text-lg font-semibold">S3 Multipart Upload</h3>
+    <p class="mt-1 text-xs text-base-content/60">
+      Uploads start on file select; submit waits for finalize.
+    </p>
+    <div class="mt-4 grid gap-3 md:grid-cols-2">
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Title
+        <input class="input input-bordered w-full text-sm" name="title" placeholder="Quarterly report" />
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Category
+        <select class="select select-bordered text-sm" name="category">
+          <option value="">Pick one</option>
+          <option value="finance">Finance</option>
+          <option value="product">Product</option>
+          <option value="ops">Operations</option>
+        </select>
+      </label>
+    </div>
+    <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+      File
+      <input class="file-input file-input-bordered file-input-sm" name="file" type="file" required />
+    </label>
+    <button class="btn btn-primary btn-sm mt-4" type="submit">Submit (S3)</button>
+  </form>
+
+  <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+    <div class="flex items-center justify-between text-xs text-base-content/60">
+      <span>S3 Submission</span>
+      <span>Latest response</span>
+    </div>
+    <div class="mt-2 space-y-1 text-xs" hy-if="s3Result">
+      <div>
+        File ID:
+        <span class="font-mono" hy="s3Result.payload.file.fileId">file_demo_001</span>
+      </div>
+      <div>
+        Title:
+        <span hy="s3Result.payload.title">Quarterly report</span>
+      </div>
+      <div>
+        Received:
+        <time hy="s3Result.receivedAt |> date('yyyy-MM-dd HH:mm')">2026-01-02 09:00</time>
+      </div>
+    </div>
+    <p class="mt-2 text-xs opacity-60" hy-else hy-dummy>Submit to see the payload.</p>
+  </section>
+
+  <form
+    id="simple-upload-form"
+    class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm"
+    action="/api/uploads/submit/simple"
+    method="post"
+    enctype="multipart/form-data"
+    hy-async-upload
+    hy-uploader-url="/api/uploads/simple"
+    hy-post="/api/uploads/submit/simple"
+    hy-store="simpleResult"
+  >
+    <h3 class="text-lg font-semibold">Simple Multipart Upload</h3>
+    <p class="mt-1 text-xs text-base-content/60">
+      Single XHR multipart with progress; no chunking/finalize.
+    </p>
+    <div class="mt-4 grid gap-3 md:grid-cols-2">
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Title
+        <input class="input input-bordered w-full text-sm" name="title" placeholder="Customer guide" />
+      </label>
+      <label class="flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+        Visibility
+        <select class="select select-bordered text-sm" name="visibility">
+          <option value="">Pick one</option>
+          <option value="public">Public</option>
+          <option value="team">Team only</option>
+          <option value="private">Private</option>
+        </select>
+      </label>
+    </div>
+    <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
+      File
+      <input class="file-input file-input-bordered file-input-sm" name="file" type="file" required />
+    </label>
+    <button class="btn btn-secondary btn-sm mt-4" type="submit">Submit (Simple)</button>
+  </form>
+
+  <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+    <div class="flex items-center justify-between text-xs text-base-content/60">
+      <span>Simple Submission</span>
+      <span>Latest response</span>
+    </div>
+    <div class="mt-2 space-y-1 text-xs" hy-if="simpleResult">
+      <div>
+        File ID:
+        <span class="font-mono" hy="simpleResult.payload.file.fileId">file_demo_simple_010</span>
+      </div>
+      <div>
+        Title:
+        <span hy="simpleResult.payload.title">Customer guide</span>
+      </div>
+      <div>
+        Received:
+        <time hy="simpleResult.receivedAt |> date('yyyy-MM-dd HH:mm')">2026-01-02 09:00</time>
+      </div>
+    </div>
+    <p class="mt-2 text-xs opacity-60" hy-else hy-dummy>Submit to see the payload.</p>
+  </section>
+
+  <section class="rounded-lg border border-base-300 bg-white/90 p-4 shadow-sm">
+    <div class="flex items-center justify-between text-xs text-base-content/60">
+      <span>Upload Queue</span>
+      <span class="badge badge-outline">hy.uploading</span>
+    </div>
+    <p class="mt-2 text-xs opacity-60" hy-if="hy.uploading.length">Active uploads</p>
+    <p class="mt-2 text-xs opacity-60" hy-else hy-dummy>No uploads yet.</p>
+    <ul class="mt-3 space-y-3 text-xs">
+      <li hy-dummy>
+        <div class="flex items-center justify-between">
+          <span>dummy-report.pdf</span>
+          <span class="badge badge-ghost">uploading</span>
+        </div>
+        <progress class="progress progress-primary w-full" max="1" value="0.5"></progress>
+        <div class="mt-1 text-[11px] text-base-content/50">3 / 6 chunks</div>
+      </li>
+      <li hy-for="u of hy.uploading">
+        <div class="flex items-center justify-between">
+          <span>
+            <span class="font-semibold" hy="u.fileName">file.bin</span>
+            <span class="text-[11px] text-base-content/50" hy="u.formId">s3-upload-form</span>
+          </span>
+          <span class="badge badge-ghost" hy="u.status">uploading</span>
+        </div>
+        <progress
+          class="progress progress-primary w-full"
+          max="1"
+          hy-attr-value="u.progress"
+        ></progress>
+        <div class="mt-1 text-[11px] text-base-content/50">
+          <span hy="u.uploadedChunks">0</span> / <span hy="u.totalChunks">0</span> chunks
+        </div>
+        <div class="mt-1 text-[11px] text-error" hy-if="u.lastError" hy="u.lastError"></div>
+      </li>
+    </ul>
+  </section>
+</section>
+    </script>
+    <script type="text/plain" id="source-json-template" data-source="mock"></script>
+    <template id="source-cdn-template">
+<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"></script>
+    </template>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
