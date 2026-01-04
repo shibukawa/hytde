@@ -8,7 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "npm run build -w packages/runtime && npm run build -w packages/parser && npm run build -w packages/precompile && npm run build -w packages/vite-plugin && npm run build -w packages/plugin-extable && npm run build -w packages/extable-bundle && npm run build -w packages/standalone && npm run build -w packages/demo",
+    "build": "npm run build -w packages/runtime && npm run build -w packages/parser && npm run build -w packages/precompile && npm run build -w packages/vite-plugin && npm run build -w packages/extable-bundle && npm run build -w packages/standalone && npm run build -w packages/demo",
     "build:standalone": "npm run build -w packages/standalone",
     "build:demo": "npm run build -w packages/demo",
     "prestandalone": "npm run build:standalone",

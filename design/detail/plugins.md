@@ -1,7 +1,7 @@
 # Plugin Mechanism
 
 ## Goals
-- Allow feature extensions (ex: table editing) without bloating the core runtime.
+- Allow feature extensions (ex: custom widgets) without bloating the core runtime.
 - Keep templates HTML-first; plugins react to parsed directives and store changes.
 - Support registration before the standalone/runtime script is loaded.
 - SSR implementations can ignore plugins and leave plugin-specific attributes/tags untouched.
@@ -26,7 +26,7 @@ hy.registerPlugin(plugin);
 
 Pre-init registration (for script tags loaded before the runtime):
 ```html
-<script src="/vendor/hytde-plugin-extable.js"></script>
+<script src="/vendor/hytde-plugin-example.js"></script>
 <script src="/dist/production-auto/index.js"></script>
 ```
 
@@ -44,7 +44,7 @@ The runtime should consume `hy.plugins` during initialization and register them 
 
 ### Sample HTML
 ```html
-<script src="/plugins/hytde-plugin-extable.js"></script>
+<script src="/plugins/hytde-plugin-example.js"></script>
 <script src="/dist/production-auto/index.js"></script>
 ```
 
@@ -103,12 +103,10 @@ export type PluginChange =
 ## Runtime Notes
 - Plugins are resolved from `hy.plugins` and `hy.registerPlugin`.
 - Plugins can store per-document state (returned in `onParse`), passed back to later hooks.
-- Table integration should be implemented as a plugin, not in core runtime.
+- Table integration is handled by the runtime when `ExtableCore` is available; plugins remain for optional extensions.
 - SSR behavior: plugins are no-op; servers may skip plugin processing entirely.
 
-## Example (Table Plugin)
-1. Plugin registers watchers for `hy-table-data` store paths.
-2. `onRender` initializes table instances on first render.
-3. `onRender` updates rows when watched store data changes.
-4. `onBeforeUnload` returns a message if there are pending edits.
-5. `onDispose` tears down listeners.
+## Example (Custom Plugin)
+1. Plugin registers watchers for specific store paths.
+2. `onRender` initializes and updates UI for watched changes.
+3. `onDispose` tears down listeners and observers.

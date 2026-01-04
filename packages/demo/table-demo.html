@@ -203,7 +203,11 @@
         });
       }
 
-      init();
+      init().then(() => {
+        if (globalThis.ExtableCore) {
+          console.debug("[demo] ExtableCore loaded (runtime wiring, no plugin).");
+        }
+      });
     </script>
     <template id="source-inline-script">
       globalThis.hyState = {

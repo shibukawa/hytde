@@ -42,13 +42,6 @@ export default defineConfig({
           fileURLToPath(new URL(".", import.meta.url)),
           "../extable-bundle/src/index.ts"
         )
-      },
-      {
-        find: /^@hytde\/plugin-extable$/,
-        replacement: resolve(
-          fileURLToPath(new URL(".", import.meta.url)),
-          "../plugin-extable/src/index.ts"
-        )
       }
     ]
   }

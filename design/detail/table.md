@@ -159,6 +159,7 @@ Width:
 Notes:
 - Loading `@extable/core` is the application’s responsibility (bundled or via import maps/CDN).
 - HyTDE’s responsibility is wiring: discover enhanced tables (`hy-table`), parse attributes, mount extable, and integrate with HyTDE’s data + forms.
+- No plugin registration is required; the runtime wires tables when `ExtableCore` is available.
 
 ### 4.4 Formula/conditional style registration (script API)
 
