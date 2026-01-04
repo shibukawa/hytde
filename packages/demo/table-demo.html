@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="production" />
+    <title>HyTDE Table Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"]
+            }
+          }
+        }
+      };
+    </script>
+    <style>
+      .is-overdue {
+        color: #b91c1c;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body hy-cloak style="display: none;" class="min-h-screen bg-base-200 text-base-content font-display">
+    <main class="min-h-screen p-4 md:p-6">
+      <header class="mb-4 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 class="text-3xl font-semibold">HyTDE Table Demo</h1>
+            <p class="text-sm opacity-70">
+              Quad-pane view for table schema, formula/conditional styles, and shortcut binding.
+            </p>
+          </div>
+          <div class="badge badge-outline">Extable</div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 lg:grid-cols-2">
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Source</h2>
+              <div role="tablist" class="tabs tabs-boxed">
+                <button class="tab tab-active" data-tab="html" type="button">HTML</button>
+                <button class="tab" data-tab="json" type="button">JSON (hyState.current)</button>
+              </div>
+            </div>
+            <div id="source-html-blocks" data-tab-panel="html" class="space-y-3">
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  CDN Import
+                </div>
+                <pre
+                  id="source-cdn"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading CDN snippet...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  Inline Script
+                </div>
+                <pre
+                  id="source-script"
+                  class="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading script...</pre>
+              </div>
+              <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/60">
+                  HTML
+                </div>
+                <pre
+                  id="source-html"
+                  class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+                >Loading source...</pre>
+              </div>
+            </div>
+            <div id="source-json-blocks" data-tab-panel="json" class="hidden rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="source-json"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Loading JSON...</pre>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Transformed HTML</h2>
+            <div class="rounded-lg border border-base-300 bg-base-200 p-3">
+              <pre
+                id="transformed-html"
+                class="max-h-72 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed"
+              >Waiting for first render...</pre
+              >
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="card-title text-lg">Rendered Output</h2>
+              <div class="badge badge-outline text-xs">Ctrl/Cmd+F</div>
+            </div>
+            <div id="render-output" class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm">
+              <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100 p-3">
+                <table
+                  class="table w-full"
+                  hy-table-data="orders"
+                  hy-data="current.orders"
+                  hy-option="render-mode: html; lang: en"
+                  hy-edit-mode="direct"
+                  hy-bind-shortcut
+                >
+                  <thead>
+                    <tr>
+                      <th hy-column="key: id; type: number" style="width: 80px">ID</th>
+                      <th hy-column="key: customer; type: string" style="width: 180px">Customer</th>
+                      <th hy-column="key: price; type: number" style="width: 100px">Price</th>
+                      <th hy-column="key: qty; type: number" style="width: 80px">Qty</th>
+                      <th hy-column="key: total; type: number" style="width: 120px">Total</th>
+                      <th hy-column="key: status; type: string" style="width: 120px">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>501</td>
+                      <td>Acme Works</td>
+                      <td>1200</td>
+                      <td>2</td>
+                      <td>2400</td>
+                      <td>paid</td>
+                    </tr>
+                    <tr>
+                      <td>502</td>
+                      <td>Northwind</td>
+                      <td>840</td>
+                      <td>1</td>
+                      <td>840</td>
+                      <td>overdue</td>
+                    </tr>
+                    <tr>
+                      <td>503</td>
+                      <td>Globex</td>
+                      <td>320</td>
+                      <td>5</td>
+                      <td>1600</td>
+                      <td>pending</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card bg-base-100 shadow">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Runtime Log</h2>
+            <div
+              id="runtime-log"
+              class="rounded-lg border border-base-300 bg-base-200 p-3 font-mono text-xs leading-relaxed"
+            >
+              <div class="opacity-60">Log entries will appear here.</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script type="module">
+      import { init } from "@hytde/standalone";
+
+      globalThis.hyState = {
+        current: {
+          orders: [
+            { id: 501, customer: "Acme Works", price: 1200, qty: 2, status: "paid" },
+            { id: 502, customer: "Northwind", price: 840, qty: 1, status: "overdue" },
+            { id: 503, customer: "Globex", price: 320, qty: 5, status: "pending" }
+          ]
+        }
+      };
+
+      if (globalThis.hy?.table) {
+        globalThis.hy.table.formula("orders", "total", (row) => row.price * row.qty);
+        globalThis.hy.table.conditionalStyle("orders", "status", (row) => {
+          return row.status === "overdue" ? { className: "is-overdue" } : null;
+        });
+      }
+
+      init();
+    </script>
+    <template id="source-inline-script">
+      globalThis.hyState = {
+        current: {
+          orders: [
+            { id: 501, customer: "Acme Works", price: 1200, qty: 2, status: "paid" },
+            { id: 502, customer: "Northwind", price: 840, qty: 1, status: "overdue" },
+            { id: 503, customer: "Globex", price: 320, qty: 5, status: "pending" }
+          ]
+        }
+      };
+
+      if (globalThis.hy?.table) {
+        globalThis.hy.table.formula("orders", "total", (row) => row.price * row.qty);
+        globalThis.hy.table.conditionalStyle("orders", "status", (row) => {
+          return row.status === "overdue" ? { className: "is-overdue" } : null;
+        });
+      }
+    </template>
+    <script type="text/plain" id="source-html-template">
+<table
+  class="table w-full"
+  hy-table-data="orders"
+  hy-data="current.orders"
+  hy-option="render-mode: html; lang: en"
+  hy-edit-mode="direct"
+  hy-bind-shortcut
+>
+  <thead>
+    <tr>
+      <th hy-column="key: id; type: number" style="width: 80px">ID</th>
+      <th hy-column="key: customer; type: string" style="width: 180px">Customer</th>
+      <th hy-column="key: price; type: number" style="width: 100px">Price</th>
+      <th hy-column="key: qty; type: number" style="width: 80px">Qty</th>
+      <th hy-column="key: total; type: number" style="width: 120px">Total</th>
+      <th hy-column="key: status; type: string" style="width: 120px">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>501</td>
+      <td>Acme Works</td>
+      <td>1200</td>
+      <td>2</td>
+      <td>2400</td>
+      <td>paid</td>
+    </tr>
+    <tr>
+      <td>502</td>
+      <td>Northwind</td>
+      <td>840</td>
+      <td>1</td>
+      <td>840</td>
+      <td>overdue</td>
+    </tr>
+    <tr>
+      <td>503</td>
+      <td>Globex</td>
+      <td>320</td>
+      <td>5</td>
+      <td>1600</td>
+      <td>pending</td>
+    </tr>
+  </tbody>
+</table>
+    </script>
+    <script type="text/plain" id="source-json-template">
+{
+  "current": {
+    "orders": [
+      { "id": 501, "customer": "Acme Works", "price": 1200, "qty": 2, "status": "paid" },
+      { "id": 502, "customer": "Northwind", "price": 840, "qty": 1, "status": "overdue" },
+      { "id": 503, "customer": "Globex", "price": 320, "qty": 5, "status": "pending" }
+    ]
+  }
+}
+    </script>
+    <template id="source-cdn-template">
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
+    </template>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

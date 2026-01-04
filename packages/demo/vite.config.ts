@@ -26,7 +26,7 @@ export default defineConfig({
         find: /^@hytde\/standalone$/,
         replacement: resolve(
           fileURLToPath(new URL(".", import.meta.url)),
-          "../standalone/src/demo-debug.ts"
+          "../standalone/src/index.ts"
         )
       },
       {
@@ -34,6 +34,20 @@ export default defineConfig({
         replacement: resolve(
           fileURLToPath(new URL(".", import.meta.url)),
           "../standalone/src/debug-api.ts"
+        )
+      },
+      {
+        find: /^@hytde\/extable-bundle$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../extable-bundle/src/index.ts"
+        )
+      },
+      {
+        find: /^@hytde\/plugin-extable$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../plugin-extable/src/index.ts"
         )
       }
     ]

@@ -1,9 +1,19 @@
 import { spawn } from "node:child_process";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 const rootDir = resolve(new URL("..", import.meta.url).pathname);
+const require = createRequire(import.meta.url);
 const standaloneDir = resolve(rootDir, "packages/standalone");
+const extableCssSource = resolve(
+  rootDir,
+  "node_modules",
+  "@extable",
+  "core",
+  "dist",
+  "index.css"
+);
 
 const variants = [
   "production-auto",
@@ -42,10 +52,11 @@ async function runVariant(variant) {
 
 for (const variant of variants) {
   await runVariant(variant);
+  const extableCssDest = resolve(standaloneDir, "dist", variant, "extable.css");
+  await copyFile(extableCssSource, extableCssDest);
 }
 
-const workerSource = resolve(rootDir, "node_modules/msw/lib/mockServiceWorker.js");
-const workerFallback = resolve(rootDir, "node_modules/msw/src/mockServiceWorker.js");
+const workerCandidates = resolveMswWorkerCandidates(rootDir);
 const workerTargets = [
   resolve(rootDir, "packages/standalone/dist/mockServiceWorker.js"),
   resolve(rootDir, "packages/standalone/dist/production-auto/mockServiceWorker.js"),
@@ -54,17 +65,51 @@ const workerTargets = [
   resolve(rootDir, "packages/standalone/dist/debug-manual/mockServiceWorker.js")
 ];
 
-await mkdir(resolve(rootDir, "packages/standalone/dist"), { recursive: true });
-let resolvedSource = workerSource;
-try {
-  await copyFile(workerSource, workerTargets[0]);
-} catch {
-  await copyFile(workerFallback, workerTargets[0]);
-  resolvedSource = workerFallback;
+const resolvedSource = await resolveExistingFile(workerCandidates);
+if (!resolvedSource) {
+  throw new Error("mockServiceWorker.js not found in msw package.");
 }
+await mkdir(resolve(rootDir, "packages/standalone/dist"), { recursive: true });
+await copyFile(resolvedSource, workerTargets[0]);
 await Promise.all(
   workerTargets.map(async (target) => {
     await mkdir(resolve(target, ".."), { recursive: true });
     await copyFile(resolvedSource, target);
   })
 );
+const extableCssRootDest = resolve(standaloneDir, "dist", "extable.css");
+await copyFile(extableCssSource, extableCssRootDest);
+
+function resolveMswWorkerCandidates(rootDir) {
+  const candidates = [];
+  try {
+    const mswRoot = resolve(require.resolve("msw/package.json"), "..");
+    candidates.push(
+      resolve(mswRoot, "lib/mockServiceWorker.js"),
+      resolve(mswRoot, "src/mockServiceWorker.js"),
+      resolve(mswRoot, "dist/mockServiceWorker.js")
+    );
+  } catch {
+    // ignore
+  }
+  candidates.push(
+    resolve(rootDir, "node_modules/msw/lib/mockServiceWorker.js"),
+    resolve(rootDir, "node_modules/msw/src/mockServiceWorker.js"),
+    resolve(rootDir, "node_modules/msw/dist/mockServiceWorker.js")
+  );
+  return candidates;
+}
+
+async function resolveExistingFile(candidates) {
+  for (const candidate of candidates) {
+    try {
+      const info = await stat(candidate);
+      if (info.isFile()) {
+        return candidate;
+      }
+    } catch {
+      // continue
+    }
+  }
+  return null;
+}

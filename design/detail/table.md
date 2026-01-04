@@ -9,7 +9,7 @@ Rationale:
 ## 1. High-level model
 
 - Author writes a normal HTML table for static/SSR layout and accessibility.
-- Author opts-in to enhancement by adding `hy-table-data="<table-key>"` on the table element.
+- Author opts-in to enhancement by adding `hy-table="<data-path>"` on the table element.
 - Table schema/options are declared in HTML attributes so the template remains self-contained.
 - When HyTDE runs (`hy-mode != disable`), it replaces the table with an extable-powered canvas/grid.
 
@@ -25,7 +25,10 @@ HyTDE enhances tables only when executing:
 ### 3.1 Basic usage
 
 ```html
-<table hy-table-data="users" hy-data="current.users" hy-edit-mode="readonly" hy-option="lang: ja en">
+<table
+  hy-table="current.users"
+  hy-table-option="lang: ja en; edit-mode: readonly"
+>
   <thead>
     <tr>
       <th hy-column="key: id; type: number" style="width: 80px">ID</th>
@@ -39,11 +42,11 @@ HyTDE enhances tables only when executing:
 </table>
 ```
 
-`hy-table-data` identifies a table instance on the page. The instance is configured by `hy-data`, `hy-edit-mode`, `hy-option`, and `hy-column`.
+`hy-table` identifies a table instance on the page and points to the data source. The instance is configured by `hy-table-option` and `hy-column`.
 
 Uniqueness:
-- `hy-table-data` MUST be unique within a document. If multiple tables share the same value, HyTDE MUST treat it as an error (the change set and event routing would be ambiguous).
-- The value may be a human-chosen key (e.g. `users`) or a data-source-like string, as long as it is unique.
+- `hy-table` MUST be unique within a document. If multiple tables share the same value, HyTDE MUST treat it as an error (the change set and event routing would be ambiguous).
+- The value is treated as both the table key and the data path (e.g. `current.users`).
 
 ### 3.2 Linking to a form (changes + validity)
 
@@ -51,11 +54,11 @@ If a table is editable and its changes must be submitted with a form, link the f
 
 ```html
 <form id="user-form" hy-post="/api/users/batch">
-  <input type="hidden" hy-table-data="users" />
+  <input type="hidden" hy-table-data="current.users" />
   <button type="submit">Save</button>
 </form>
 
-<table hy-table-data="users" hy-data="current.users" hy-edit-mode="commit"></table>
+<table hy-table="current.users" hy-table-option="edit-mode: commit"></table>
 ```
 
 Runtime contract:
@@ -72,7 +75,7 @@ If the hidden input has `hy-table-submit="all"`, HyTDE MUST include the full cur
 Example:
 ```html
 <form hy-post="/api/departments/save">
-  <input type="hidden" hy-table-data="departments" hy-table-submit="all" />
+  <input type="hidden" hy-table-data="current.departments" hy-table-submit="all" />
   <button type="submit">Save</button>
 </form>
 ```
@@ -100,36 +103,38 @@ Notes:
 - For `all`, delta fields may be omitted or empty; consumers should prefer `rows` when present.
 
 Single-table convenience:
-- If the document contains exactly one table with `hy-table-data`, the hidden input MAY omit the key: `<input type="hidden" hy-table-data />`.
+- If the document contains exactly one table with `hy-table`, the hidden input MAY omit the key: `<input type="hidden" hy-table-data />`.
 - If multiple tables exist, omitting the key MUST be treated as an error.
 
 ## 4. Table definition via attributes (v1)
 
-### 4.1 `hy-data` (rows source)
+### 4.1 `hy-table` (table key + rows source)
 
-`hy-data="<path>"` points to an array of row objects in the HyTDE data model.
+`hy-table="<path>"` points to an array of row objects in the HyTDE data model and also defines the table key.
 
 Examples:
-- `hy-data="current.users"`
-- `hy-data="hyState.current.users"`
+- `hy-table="current.users"`
+- `hy-table="hyState.current.users"`
 
-The exact resolution rules follow HyTDE selector/path rules (see `design/template-language.md`), but `hy-data` SHOULD be a simple path (no `|>` transforms) in v1.
+The exact resolution rules follow HyTDE selector/path rules (see `design/template-language.md`), but `hy-table` SHOULD be a simple path (no `|>` transforms) in v1.
 
-### 4.2 `hy-option` (extable options)
+### 4.2 `hy-table-option` (table options)
 
-`hy-option="..."` configures extable options using a CSS-like declaration list so it is familiar and has well-known escaping rules.
+`hy-table-option="..."` configures table options using a CSS-like declaration list so it is familiar and has well-known escaping rules.
 
 Format:
 - Parsed like an inline `style=""` attribute: a declaration list of `key: value;` pairs.
 - Values may contain spaces.
 - For list-like values, use space-separated tokens (e.g. `lang: ja en`).
+- Boolean flags may be specified as bare tokens (e.g. `virtual-scroll`).
 - Escaping/quoting follows CSS conventions:
   - Use quotes to include special characters safely: `title: "a; b";`
   - Backslash escapes follow CSS rules (same as `style=""` parsing).
 
 Examples:
-- `hy-option="lang: ja en"`
-- `hy-option="filter: true; virtual-scroll: true"`
+- `hy-table-option="lang: ja en"`
+- `hy-table-option="filter: true; virtual-scroll: true"`
+- `hy-table-option="virtual-scroll; edit-mode: commit"`
 
 ### 4.3 `hy-column` (column definition on `<th>`)
 
@@ -141,7 +146,7 @@ Each visible column is defined on its header cell:
 </th>
 ```
 
-`hy-column` uses the same CSS-like declaration list format as `hy-option` (parsed like `style=""`).
+`hy-column` uses the same CSS-like declaration list format as `hy-table-option` (parsed like `style=""`).
 
 Keys (v1):
 - `key`: property name in the row object (required)
@@ -153,11 +158,36 @@ Width:
 
 Notes:
 - Loading `@extable/core` is the application’s responsibility (bundled or via import maps/CDN).
-- HyTDE’s responsibility is wiring: discover enhanced tables (`hy-table-data`), parse attributes, mount extable, and integrate with HyTDE’s data + forms.
+- HyTDE’s responsibility is wiring: discover enhanced tables (`hy-table`), parse attributes, mount extable, and integrate with HyTDE’s data + forms.
 
-### 4.4 `hy-edit-mode` (edit behavior)
+### 4.4 Formula/conditional style registration (script API)
 
-`hy-edit-mode` controls how edits are handled.
+For advanced table behavior that is not expressible in HTML attributes, HyTDE exposes a JavaScript registry API that associates formula and conditional style definitions with a specific table and column.
+
+```js
+hy.table.formula("users", "total", (row) => row.price * row.qty);
+hy.table.conditionalStyle("users", "status", (row) => {
+  return row.status === "overdue" ? { className: "is-overdue" } : null;
+});
+```
+
+Rules:
+- Registrations are matched by `tableId` (`hy-table` value) + `columnKey` (`hy-column` key).
+- The last registration for the same pair overwrites the previous entry.
+- Unknown `tableId` or `columnKey` registrations are ignored with diagnostics.
+- No template-side scripting is introduced; registrations are only via `hy.table.*` in `<script>`.
+
+### 4.5 `hy-bind-shortcut` (table attribute)
+
+If the table has `hy-bind-shortcut`, HyTDE binds `ctrl+f` / `cmd+f` to open the Extable search panel for that table. The binding is removed on unload or when the table instance is destroyed.
+
+Diagnostics + logs:
+- Any invalid table metadata (missing headers, unknown `hy-option` keys, unmatched registry entries) is appended to `hy.errors` with contextual details.
+- Table initialization, schema merge counts, and shortcut binding emit debug logs via `console.debug`.
+
+### 4.6 `edit-mode` (table option)
+
+`edit-mode` controls how edits are handled.
 
 Values (v1):
 - `direct` (default): apply edits immediately and emit change events for each edit.
@@ -168,7 +198,7 @@ Notes:
 - `commit` mode is intended to be used with `<input type="hidden" hy-table-data="...">` inside a form.
 - Even in `direct` mode, the table may still maintain a change set for diagnostics, but submission behavior is application-defined.
 
-## 4.4 Future: advanced extable schema
+## 4.7 Future: advanced extable schema
 
 For advanced extable features that do not map cleanly to HTML attributes, a future version may add optional JavaScript registration for table schemas/options. v1 focuses on attribute-based configuration.
 
@@ -224,14 +254,14 @@ Default behavior (proposal):
 
 ## 8. Direct mode server sync (proposal)
 
-In `hy-edit-mode="direct"`, edits should be observable so the app can sync changes to the server without waiting for an explicit submit.
+In `edit-mode="direct"`, edits should be observable so the app can sync changes to the server without waiting for an explicit submit.
 
 Two non-exclusive approaches:
 
 ### 8.1 Subscribe API (recommended)
 
 HyTDE emits a table edit event on every edit (or after internal debouncing):
-- payload includes `tableKey` (the `hy-table-data` value), `rowKey`, changed cells, and a normalized delta.
+- payload includes `tableKey` (the `hy-table` value), `rowKey`, changed cells, and a normalized delta.
 
 The app subscribes in JS and performs network calls as needed (debounce/batch optional).
 
@@ -240,7 +270,7 @@ Recommended: expose both a DOM event and a JS subscription helper:
 - Helper: `hy.on("table-edit", tableKey?, handler)`
 
 `tableKey`:
-- Uses the `hy-table-data="<table-key>"` value from the `<table>`.
+- Uses the `hy-table="<data-path>"` value from the `<table>`.
 - If `tableKey` is omitted, the handler receives events for **all** tables on the page (useful when there is only one table).
 
 Optional full-data variant (proposal):
@@ -254,7 +284,7 @@ Optional full-data variant (proposal):
 For more declarative wiring, the table can reference a registered handler:
 
 ```html
-<table hy-table-data="users" hy-edit-mode="direct" hy-table-sync="usersSync"></table>
+<table hy-table="current.users" hy-table-option="edit-mode: direct" hy-table-sync="usersSync"></table>
 ```
 
 And the app registers:
