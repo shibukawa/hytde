@@ -21,6 +21,23 @@ export interface HyLogEntry {
   timestamp: number;
 }
 
+export type AsyncUploadStatus = "queued" | "uploading" | "finalizing" | "completed" | "failed";
+
+export type AsyncUploadEntry = {
+  uploadUuid: string;
+  formId: string | null;
+  inputName: string;
+  fileName: string;
+  size: number;
+  mime: string;
+  status: AsyncUploadStatus;
+  totalChunks: number;
+  uploadedChunks: number;
+  progress: number;
+  startedAt: number;
+  lastError?: string;
+};
+
 export type PluginState = Record<string, unknown> | null;
 
 export type PluginWatchTarget =
@@ -57,6 +74,7 @@ export interface HytdePlugin {
 export interface HyGlobals {
   loading: boolean;
   errors: HyError[];
+  uploading?: AsyncUploadEntry[];
   onRenderComplete?: (callback: () => void) => void;
   onLog?: (callback: (entry: HyLogEntry) => void) => void;
   onError?: (errors: HyError[]) => void;
@@ -190,6 +208,8 @@ interface RuntimeState {
   parsed: ParsedDocument;
   parser: ParserAdapter;
   cascade: CascadeState;
+  asyncUploads: Map<HTMLFormElement, AsyncUploadSession>;
+  asyncUploadEntries: Map<string, AsyncUploadEntry>;
   bootstrapPending: boolean;
   plugins: PluginRegistration[];
   pluginsInitialized: boolean;
@@ -222,6 +242,7 @@ interface RuntimeState {
   actionPrefetchInFlight: Map<string, Promise<void>>;
   actionCommandSkip: WeakSet<Element>;
   optimisticInputValues: WeakMap<HTMLInputElement, unknown>;
+  formDisableSnapshots: WeakMap<HTMLFormElement, FormDisableSnapshot>;
   historyListenerAttached: boolean;
   renderCallbacks: Array<() => void>;
   logCallbacks: Array<(entry: HyLogEntry) => void>;
@@ -234,6 +255,59 @@ interface RuntimeState {
   navListenerAttached: boolean;
   formStateNavListenerAttached: boolean;
 }
+
+type AsyncUploadMode = "s3" | "simple";
+type AfterSubmitAction = "clear" | "keep";
+
+type AsyncUploadConfig = {
+  form: HTMLFormElement;
+  formId: string | null;
+  mode: AsyncUploadMode;
+  uploaderUrl: string | null;
+  chunkSizeBytes: number;
+  concurrency: number;
+  uploadUuid: string;
+  afterSubmitAction: AfterSubmitAction;
+  afterSubmitActionPresent: boolean;
+  redirectConflict: boolean;
+};
+
+type AsyncUploadFileState = {
+  key: string;
+  uploadUuid: string;
+  fileUuid: string;
+  inputName: string;
+  fileIndex: number;
+  fileName: string;
+  size: number;
+  mime: string;
+  chunkSizeBytes: number;
+  totalChunks: number;
+  uploadedChunks: number;
+  status: AsyncUploadStatus;
+  startedAt: number;
+  lastError?: string;
+  uploadId?: string;
+  s3Path?: string;
+  partUrls?: string[];
+  partEtags?: Array<string | null>;
+  fileId?: string;
+  inFlightProgress: Map<number, number>;
+  file?: File;
+};
+
+type AsyncUploadSession = {
+  config: AsyncUploadConfig;
+  files: Map<string, AsyncUploadFileState>;
+  pendingSubmit: AsyncUploadPendingSubmit | null;
+};
+
+type AsyncUploadPendingSubmit = {
+  target: ParsedRequestTarget;
+  payload: Record<string, unknown>;
+  method: string;
+  actionUrl: string;
+};
 
 type CascadeDisabledState = {
   prevDisabled: boolean;
@@ -265,12 +339,28 @@ type PluginRegistration = {
   watches: PluginWatchTarget[];
 };
 
+type FormDisableSnapshot = {
+  controls: Array<{ element: HTMLElement; wasDisabled: boolean }>;
+};
+
 const runtimeStates = new WeakMap<Document, RuntimeState>();
 const RENDER_CALLBACK_KEY = "__hytdeRenderCallbacks";
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const TRANSFORM_REGISTRY_KEY = "__hytdeTransforms";
 const PATH_DIAGNOSTIC_KEY = "__hytdePathDiagnostics";
 const NAV_FALLBACK_ATTR = "data-hy-hash-fallback";
+const ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB = 10;
+const ASYNC_UPLOAD_MIN_CHUNK_SIZE_MIB = 5;
+// Concurrency kept modest to reduce memory pressure (especially on Safari).
+const ASYNC_UPLOAD_MAX_CONCURRENCY = 6;
+const ASYNC_UPLOAD_CLEAR_DELAY_MS = 2000;
+const ASYNC_UPLOAD_DB_NAME = "hytde-async-upload";
+const ASYNC_UPLOAD_DB_VERSION = 1;
+const ASYNC_UPLOAD_CHUNK_STORE = "chunks";
+const ASYNC_UPLOAD_FILE_STORE = "files";
+const ASYNC_UPLOAD_PENDING_PREFIX = "hytde:async-upload:pending:";
+const ASYNC_UPLOAD_SESSION_PREFIX = "hytde:async-upload:session:";
+let asyncUploadDbPromise: Promise<IDBDatabase> | null = null;
 
 type HyPathMode = "hash" | "path";
 
@@ -399,6 +489,9 @@ function ensureGlobals(scope: typeof globalThis): RuntimeGlobals {
       logCallbacks.push(callback);
     };
   }
+  if (!Array.isArray(hy.uploading)) {
+    hy.uploading = [];
+  }
 
   if (!scope.hyParams) {
     scope.hyParams = parseParams(scope.location?.search ?? "", scope.location?.hash ?? "");
@@ -480,6 +573,8 @@ function getRuntimeState(
     existing.parser = parser;
     existing.cascade = buildCascadeState(existing, parsed);
     existing.useMswMock = useMswMock;
+    existing.asyncUploads = new Map();
+    existing.asyncUploadEntries = new Map();
     return existing;
   }
 
@@ -506,6 +601,8 @@ function getRuntimeState(
       disabledState: new WeakMap(),
       actionSkip: new WeakSet()
     },
+    asyncUploads: new Map(),
+    asyncUploadEntries: new Map(),
     bootstrapPending: false,
     plugins: [],
     pluginsInitialized: false,
@@ -538,6 +635,7 @@ function getRuntimeState(
     actionPrefetchInFlight: new Map(),
     actionCommandSkip: new WeakSet(),
     optimisticInputValues: new WeakMap(),
+    formDisableSnapshots: new WeakMap(),
     historyListenerAttached: false,
     renderCallbacks,
     logCallbacks,
@@ -1188,6 +1286,7 @@ function removeDummyNodes(nodes: Element[]): void {
 
 async function bootstrapRuntime(state: RuntimeState): Promise<void> {
   setupFormHandlers(state);
+  setupAsyncUploadHandlers(state);
   setupFormStateHandlers(state);
   setupActionHandlers(state);
   setupFillActionHandlers(state, state.parsed.fillActions);
@@ -1266,6 +1365,215 @@ function setupFormHandlers(state: RuntimeState): void {
       event.preventDefault();
       void handleRequest(resolved, state);
     });
+  }
+}
+
+function setupAsyncUploadHandlers(state: RuntimeState): void {
+  const forms = Array.from(state.doc.querySelectorAll<HTMLFormElement>("form[hy-async-upload]"));
+  for (const form of forms) {
+    if (state.asyncUploads.has(form)) {
+      continue;
+    }
+    const config = parseAsyncUploadConfig(form, state);
+    if (!config) {
+      continue;
+    }
+    const session: AsyncUploadSession = {
+      config,
+      files: new Map(),
+      pendingSubmit: null
+    };
+    state.asyncUploads.set(form, session);
+    attachAsyncUploadListeners(form, session, state);
+    stripAsyncUploadAttributes(form);
+    void resumePendingAsyncUpload(session, state);
+  }
+}
+
+function attachAsyncUploadListeners(form: HTMLFormElement, session: AsyncUploadSession, state: RuntimeState): void {
+  const inputs = Array.from(form.querySelectorAll<HTMLInputElement>("input[type='file']"));
+  for (const input of inputs) {
+    input.addEventListener("change", () => {
+      if (!input.files || input.files.length === 0) {
+        return;
+      }
+      void handleFileInputChange(input, session, state).catch((error) => {
+        markAsyncUploadFailed(
+          {
+            key: "",
+            uploadUuid: session.config.uploadUuid,
+            inputName: input.name ?? "",
+            fileIndex: 0,
+            fileName: input.files?.[0]?.name ?? "",
+            size: input.files?.[0]?.size ?? 0,
+            mime: input.files?.[0]?.type ?? "application/octet-stream",
+            chunkSizeBytes: session.config.chunkSizeBytes,
+            totalChunks: 0,
+            uploadedChunks: 0,
+            status: "failed",
+            startedAt: Date.now(),
+            inFlightProgress: new Map()
+          },
+          session,
+          state,
+          error
+        );
+      });
+    });
+  }
+  form.addEventListener("drop", (event) => {
+    const data = event.dataTransfer;
+    if (!data || data.files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    if (inputs.length !== 1) {
+      emitAsyncUploadError(state, "Drop upload requires exactly one file input.", {
+        formId: session.config.formId ?? undefined
+      });
+      return;
+    }
+    void handleFileInputChange(inputs[0], session, state, data.files).catch((error) => {
+      markAsyncUploadFailed(
+        {
+          key: "",
+          uploadUuid: session.config.uploadUuid,
+          inputName: inputs[0].name ?? "",
+          fileIndex: 0,
+          fileName: data.files?.[0]?.name ?? "",
+          size: data.files?.[0]?.size ?? 0,
+          mime: data.files?.[0]?.type ?? "application/octet-stream",
+          chunkSizeBytes: session.config.chunkSizeBytes,
+          totalChunks: 0,
+          uploadedChunks: 0,
+          status: "failed",
+          startedAt: Date.now(),
+          inFlightProgress: new Map()
+        },
+        session,
+        state,
+        error
+      );
+    });
+  });
+  form.addEventListener("dragover", (event) => {
+    if (event.dataTransfer?.types.includes("Files")) {
+      event.preventDefault();
+    }
+  });
+}
+
+function parseAsyncUploadConfig(form: HTMLFormElement, state: RuntimeState): AsyncUploadConfig | null {
+  const rawModeAttr = form.getAttribute("hy-async-upload");
+  const rawMode = rawModeAttr ? rawModeAttr.trim() : "";
+  const mode: AsyncUploadMode = rawMode === "" ? "simple" : (rawMode as AsyncUploadMode);
+  if (mode !== "s3" && mode !== "simple") {
+    emitAsyncUploadError(state, "hy-async-upload must be \"s3\" or \"simple\".", {
+      formId: form.id || undefined,
+      value: rawMode
+    });
+    return null;
+  }
+  const uploaderRaw = form.getAttribute("hy-uploader-url")?.trim() ?? "";
+  let uploaderUrl = uploaderRaw || null;
+  if (!uploaderUrl && mode === "simple") {
+    const action = form.getAttribute("action")?.trim() ?? form.action?.trim() ?? "";
+    uploaderUrl = action || null;
+  }
+  if (!uploaderUrl) {
+    if (mode === "s3") {
+      emitAsyncUploadError(state, "hy-uploader-url is required for async upload.", {
+        formId: form.id || undefined,
+        mode
+      });
+      return null;
+    }
+    emitAsyncUploadError(state, "Async upload requires uploader URL or form action.", {
+      formId: form.id || undefined,
+      mode
+    });
+    return null;
+  }
+  const chunkSizeBytes = parseChunkSize(form, state);
+  const uploadUuid = createUploadUuid();
+  const formId = form.id?.trim() ? form.id.trim() : null;
+  const afterSubmitAttrRaw = form.getAttribute("hy-after-submit-action");
+  const afterSubmitAttrPresent = afterSubmitAttrRaw !== null;
+  const afterSubmitAttr = afterSubmitAttrRaw?.trim().toLowerCase() ?? "";
+  let afterSubmitAction: AfterSubmitAction = "keep";
+  if (afterSubmitAttrPresent) {
+    if (afterSubmitAttr === "clear") {
+      afterSubmitAction = "clear";
+    } else if (afterSubmitAttr === "keep" || afterSubmitAttr === "") {
+      afterSubmitAction = "keep";
+    } else {
+      emitAsyncUploadError(state, "hy-after-submit-action must be \"clear\" or \"keep\".", {
+        formId: form.id || undefined,
+        value: afterSubmitAttrRaw ?? ""
+      });
+    }
+  }
+  const hasRedirectAttr = Boolean(form.getAttribute("hy-redirect")?.trim());
+  const redirectConflict = hasRedirectAttr && afterSubmitAttrPresent;
+  if (redirectConflict) {
+    emitAsyncUploadError(state, "hy-redirect and hy-after-submit-action cannot be used together.", {
+      formId: form.id || undefined
+    });
+  }
+  return {
+    form,
+    formId,
+    mode,
+    uploaderUrl,
+    chunkSizeBytes,
+    concurrency: ASYNC_UPLOAD_MAX_CONCURRENCY,
+    uploadUuid,
+    afterSubmitAction,
+    afterSubmitActionPresent: afterSubmitAttrPresent,
+    redirectConflict
+  };
+}
+
+function parseChunkSize(form: HTMLFormElement, state: RuntimeState): number {
+  const raw = form.getAttribute("hy-file-chunksize");
+  if (raw === null) {
+    return ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB * 1024 * 1024;
+  }
+  const parsed = Number(raw.trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    emitAsyncUploadError(state, "hy-file-chunksize must be a positive number.", {
+      formId: form.id || undefined,
+      value: raw
+    });
+    return ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB * 1024 * 1024;
+  }
+  const normalized = Math.max(parsed, ASYNC_UPLOAD_MIN_CHUNK_SIZE_MIB);
+  if (normalized !== parsed) {
+    emitAsyncUploadError(state, "hy-file-chunksize must be at least 5 MiB.", {
+      formId: form.id || undefined,
+      value: raw
+    });
+  }
+  return normalized * 1024 * 1024;
+}
+
+function createUploadUuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function emitAsyncUploadError(state: RuntimeState, message: string, detail?: Record<string, unknown>): void {
+  emitLog(state, {
+    type: "error",
+    message,
+    detail,
+    timestamp: Date.now()
+  });
+  pushError(state, createHyError("syntax", message, detail));
+  if (typeof console !== "undefined") {
+    console.error("[hytde] async-upload error", message, detail);
   }
 }
 
@@ -1754,6 +2062,1411 @@ function clearFormStateOnRequest(target: ParsedRequestTarget, state: RuntimeStat
     type: "info",
     message: "form-state:clear",
     detail: { key },
+    timestamp: Date.now()
+  });
+}
+
+function disableFormControls(form: HTMLFormElement, state: RuntimeState): void {
+  if (state.formDisableSnapshots.has(form)) {
+    return;
+  }
+  const controls = Array.from(
+    form.querySelectorAll<HTMLElement>("input, button, select, textarea, fieldset")
+  );
+  const snapshot: FormDisableSnapshot = {
+    controls: controls.map((element) => ({
+      element,
+      wasDisabled: (element as HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement | HTMLFieldSetElement)
+        .disabled
+    }))
+  };
+  state.formDisableSnapshots.set(form, snapshot);
+  for (const control of controls) {
+    if ("disabled" in control) {
+      (control as HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement | HTMLFieldSetElement).disabled = true;
+    }
+  }
+}
+
+function restoreFormControls(form: HTMLFormElement, state: RuntimeState): void {
+  const snapshot = state.formDisableSnapshots.get(form);
+  if (!snapshot) {
+    return;
+  }
+  for (const entry of snapshot.controls) {
+    if (!entry.element.isConnected) {
+      continue;
+    }
+    if ("disabled" in entry.element) {
+      (entry.element as HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement | HTMLFieldSetElement).disabled =
+        entry.wasDisabled;
+    }
+  }
+  state.formDisableSnapshots.delete(form);
+}
+
+async function scheduleClearAfterSubmit(
+  form: HTMLFormElement,
+  session: AsyncUploadSession,
+  state: RuntimeState
+): Promise<void> {
+  disableFormControls(form, state);
+  const view = state.doc.defaultView;
+  if (view) {
+    await new Promise<void>((resolve) => {
+      view.setTimeout(resolve, ASYNC_UPLOAD_CLEAR_DELAY_MS);
+    });
+  }
+  form.reset();
+  await clearAsyncUploadSession(session, state);
+  restoreFormControls(form, state);
+  emitLog(state, {
+    type: "info",
+    message: "submit:clear",
+    detail: { formId: form.id || undefined },
+    timestamp: Date.now()
+  });
+}
+
+async function resumePendingAsyncUpload(session: AsyncUploadSession, state: RuntimeState): Promise<void> {
+  const pending = readPendingSubmission(session, state);
+  if (pending) {
+    session.pendingSubmit = pending;
+  }
+  let files: AsyncUploadFileRecord[] = [];
+  try {
+    files = await loadStoredFiles(session.config.uploadUuid);
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to load stored async upload records; resuming with empty queue.", {
+      uploadUuid: session.config.uploadUuid,
+      error: error instanceof Error ? error.message : String(error ?? "")
+    });
+  }
+  for (const record of files) {
+    const key = buildAsyncUploadFileKey(record.inputName, record.fileIndex);
+    if (session.files.has(key)) {
+      continue;
+    }
+    const partEtags = Array.isArray(record.partEtags) ? record.partEtags : undefined;
+    const chunkSizeBytes = record.chunkSizeBytes ?? session.config.chunkSizeBytes;
+    const uploadedChunks =
+      session.config.mode === "s3" && partEtags
+        ? partEtags.filter((etag) => Boolean(etag)).length
+        : record.uploadedChunks;
+    const fileState: AsyncUploadFileState = {
+      key,
+      uploadUuid: record.uploadUuid,
+      fileUuid: record.fileUuid || record.uploadUuid,
+      inputName: record.inputName,
+      fileIndex: record.fileIndex,
+      fileName: record.fileName,
+      size: record.size,
+      mime: record.mime,
+      chunkSizeBytes,
+      totalChunks: record.totalChunks,
+      uploadedChunks,
+      status: record.status,
+      startedAt: record.startedAt,
+      lastError: record.lastError,
+      uploadId: record.uploadId,
+      s3Path: record.s3Path,
+      partUrls: record.partUrls,
+      partEtags,
+      fileId: record.fileId,
+      inFlightProgress: new Map()
+    };
+    session.files.set(key, fileState);
+    upsertAsyncUploadEntry(session, fileState, state);
+    if (fileState.status !== "completed" && fileState.status !== "failed") {
+      void startAsyncUploadForFile(fileState, session, state);
+    }
+  }
+  await maybeSubmitPendingAsyncUpload(session, state);
+}
+
+async function handleFileInputChange(
+  input: HTMLInputElement,
+  session: AsyncUploadSession,
+  state: RuntimeState,
+  filesOverride?: FileList
+): Promise<void> {
+  const files = filesOverride ?? input.files;
+  if (!files || files.length === 0) {
+    return;
+  }
+  const inputName = input.name?.trim();
+  if (!inputName) {
+    emitAsyncUploadError(state, "File input requires a name for async upload.", {
+      formId: session.config.formId ?? undefined
+    });
+    return;
+  }
+  const existing = Array.from(session.files.values()).filter((file) => file.inputName === inputName);
+  for (const file of existing) {
+    await clearAsyncUploadFile(session, inputName, file.fileIndex, state);
+  }
+  const now = Date.now();
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+    const file = files[fileIndex];
+    const fileUuid = createUploadUuid();
+    const totalChunks =
+      session.config.mode === "s3" ? Math.max(1, Math.ceil(file.size / session.config.chunkSizeBytes)) : 1;
+    const key = buildAsyncUploadFileKey(inputName, fileIndex);
+    const fileState: AsyncUploadFileState = {
+      key,
+      uploadUuid: session.config.uploadUuid,
+      fileUuid,
+      inputName,
+      fileIndex,
+      fileName: file.name,
+      size: file.size,
+      mime: file.type || "application/octet-stream",
+      chunkSizeBytes: session.config.mode === "s3" ? session.config.chunkSizeBytes : file.size,
+      totalChunks,
+      uploadedChunks: 0,
+      status: "queued",
+      startedAt: now,
+      inFlightProgress: new Map(),
+      file: session.config.mode === "simple" ? file : undefined
+    };
+    session.files.set(key, fileState);
+    upsertAsyncUploadEntry(session, fileState, state);
+    if (session.config.mode === "s3") {
+      try {
+        await storeFileRecord(fileState);
+        await storeFileChunks(fileState, file);
+      } catch (error) {
+        emitAsyncUploadError(state, "IndexedDB unavailable for async upload; falling back to in-memory chunks.", {
+          formId: session.config.formId ?? undefined,
+          inputName,
+          error: error instanceof Error ? error.message : String(error ?? "")
+        });
+      }
+    }
+    fileState.file = file;
+    emitLog(state, {
+      type: "info",
+      message: "upload.session.create",
+      detail: { uploadUuid: fileState.fileUuid, inputName, fileIndex },
+      timestamp: Date.now()
+    });
+    void startAsyncUploadForFile(fileState, session, state);
+  }
+}
+
+async function clearAsyncUploadFile(
+  session: AsyncUploadSession,
+  inputName: string,
+  fileIndex: number,
+  state: RuntimeState
+): Promise<void> {
+  const key = buildAsyncUploadFileKey(inputName, fileIndex);
+  const existing = session.files.get(key);
+  if (!existing) {
+    try {
+      await deleteStoredFile(session.config.uploadUuid, inputName, fileIndex, 0);
+    } catch (error) {
+      emitAsyncUploadError(state, "Failed to clear previous async upload state; continuing with new file.", {
+        uploadUuid: session.config.uploadUuid,
+        inputName,
+        error: error instanceof Error ? error.message : String(error ?? "")
+      });
+    }
+    return;
+  }
+  session.files.delete(key);
+  removeAsyncUploadEntry(existing, state);
+  try {
+    await deleteStoredFile(existing.uploadUuid, inputName, fileIndex, existing.totalChunks);
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to clear stored chunks for async upload; continuing with new file.", {
+      uploadUuid: session.config.uploadUuid,
+      inputName,
+      error: error instanceof Error ? error.message : String(error ?? "")
+    });
+  }
+}
+
+async function clearAsyncUploadSession(session: AsyncUploadSession, state: RuntimeState): Promise<void> {
+  const files = Array.from(session.files.values());
+  for (const file of files) {
+    await clearAsyncUploadFile(session, file.inputName, file.fileIndex, state);
+  }
+  clearPendingSubmission(session, state);
+}
+
+function buildAsyncUploadFileKey(inputName: string, fileIndex: number): string {
+  return `${inputName}:${fileIndex}`;
+}
+
+function upsertAsyncUploadEntry(session: AsyncUploadSession, fileState: AsyncUploadFileState, state: RuntimeState): void {
+  const key = fileState.key;
+  const existing = state.asyncUploadEntries.get(key);
+  const progress = computeUploadProgress(fileState);
+  const entry: AsyncUploadEntry =
+    existing ?? {
+      uploadUuid: fileState.fileUuid,
+      formId: session.config.formId,
+      inputName: fileState.inputName,
+      fileName: fileState.fileName,
+      size: fileState.size,
+      mime: fileState.mime,
+      status: fileState.status,
+      totalChunks: fileState.totalChunks,
+      uploadedChunks: fileState.uploadedChunks,
+      progress,
+      startedAt: fileState.startedAt
+    };
+  entry.status = fileState.status;
+  entry.totalChunks = fileState.totalChunks;
+  entry.uploadedChunks = fileState.uploadedChunks;
+  entry.progress = progress;
+  entry.lastError = fileState.lastError;
+  state.asyncUploadEntries.set(key, entry);
+  const list = state.globals.hy.uploading;
+  if (list && !list.includes(entry)) {
+    list.push(entry);
+  }
+}
+
+function removeAsyncUploadEntry(fileState: AsyncUploadFileState, state: RuntimeState): void {
+  const entry = state.asyncUploadEntries.get(fileState.key);
+  if (!entry) {
+    return;
+  }
+  state.asyncUploadEntries.delete(fileState.key);
+  const list = state.globals.hy.uploading;
+  if (!list) {
+    return;
+  }
+  const index = list.indexOf(entry);
+  if (index >= 0) {
+    list.splice(index, 1);
+  }
+}
+
+function computeUploadProgress(fileState: AsyncUploadFileState): number {
+  const inflight = Array.from(fileState.inFlightProgress.values()).reduce((sum, value) => sum + value, 0);
+  if (fileState.totalChunks <= 0) {
+    return 0;
+  }
+  return Math.min(1, (fileState.uploadedChunks + inflight) / fileState.totalChunks);
+}
+
+type AsyncUploadFileRecord = {
+  uploadUuid: string;
+  fileUuid: string;
+  inputName: string;
+  fileIndex: number;
+  fileName: string;
+  size: number;
+  mime: string;
+  chunkSizeBytes: number;
+  totalChunks: number;
+  uploadedChunks: number;
+  status: AsyncUploadStatus;
+  startedAt: number;
+  lastError?: string;
+  uploadId?: string;
+  s3Path?: string;
+  partUrls?: string[];
+  partEtags?: Array<string | null>;
+  fileId?: string;
+};
+
+type AsyncUploadChunkRecord = {
+  uploadUuid: string;
+  fileUuid: string;
+  inputName: string;
+  fileIndex: number;
+  chunkIndex: number;
+  blob: Blob;
+};
+
+async function getAsyncUploadDb(): Promise<IDBDatabase> {
+  if (asyncUploadDbPromise) {
+    return asyncUploadDbPromise;
+  }
+  asyncUploadDbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(ASYNC_UPLOAD_DB_NAME, ASYNC_UPLOAD_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(ASYNC_UPLOAD_CHUNK_STORE)) {
+        db.createObjectStore(ASYNC_UPLOAD_CHUNK_STORE, {
+          keyPath: ["uploadUuid", "inputName", "fileIndex", "chunkIndex"]
+        });
+      }
+      if (!db.objectStoreNames.contains(ASYNC_UPLOAD_FILE_STORE)) {
+        const store = db.createObjectStore(ASYNC_UPLOAD_FILE_STORE, {
+          keyPath: ["uploadUuid", "inputName", "fileIndex"]
+        });
+        store.createIndex("byUploadUuid", "uploadUuid");
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  return asyncUploadDbPromise;
+}
+
+async function storeFileRecord(fileState: AsyncUploadFileState): Promise<void> {
+  const db = await getAsyncUploadDb();
+  const record: AsyncUploadFileRecord = {
+    uploadUuid: fileState.uploadUuid,
+    fileUuid: fileState.fileUuid,
+    inputName: fileState.inputName,
+    fileIndex: fileState.fileIndex,
+    fileName: fileState.fileName,
+    size: fileState.size,
+    mime: fileState.mime,
+    chunkSizeBytes: fileState.chunkSizeBytes,
+    totalChunks: fileState.totalChunks,
+    uploadedChunks: fileState.uploadedChunks,
+    status: fileState.status,
+    startedAt: fileState.startedAt,
+    lastError: fileState.lastError,
+    uploadId: fileState.uploadId,
+    s3Path: fileState.s3Path,
+    partUrls: fileState.partUrls,
+    partEtags: fileState.partEtags,
+    fileId: fileState.fileId
+  };
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(ASYNC_UPLOAD_FILE_STORE, "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore(ASYNC_UPLOAD_FILE_STORE).put(record);
+  });
+}
+
+async function loadStoredFiles(uploadUuid: string): Promise<AsyncUploadFileRecord[]> {
+  const db = await getAsyncUploadDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ASYNC_UPLOAD_FILE_STORE, "readonly");
+    const store = tx.objectStore(ASYNC_UPLOAD_FILE_STORE);
+    const index = store.index("byUploadUuid");
+    const request = index.getAll(uploadUuid);
+    request.onsuccess = () => resolve(request.result ?? []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storeFileChunks(fileState: AsyncUploadFileState, file: File): Promise<void> {
+  const db = await getAsyncUploadDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(ASYNC_UPLOAD_CHUNK_STORE, "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    const store = tx.objectStore(ASYNC_UPLOAD_CHUNK_STORE);
+    const chunkSize = fileState.chunkSizeBytes;
+    for (let index = 0; index < fileState.totalChunks; index += 1) {
+      const start = index * chunkSize;
+      const end = Math.min(file.size, start + chunkSize);
+      const blob = file.slice(start, end);
+      const record: AsyncUploadChunkRecord = {
+        uploadUuid: fileState.uploadUuid,
+        fileUuid: fileState.fileUuid,
+        inputName: fileState.inputName,
+        fileIndex: fileState.fileIndex,
+        chunkIndex: index,
+        blob
+      };
+      store.put(record);
+    }
+  });
+}
+
+async function loadChunkBlob(
+  uploadUuid: string,
+  inputName: string,
+  fileIndex: number,
+  chunkIndex: number
+): Promise<Blob | null> {
+  const db = await getAsyncUploadDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ASYNC_UPLOAD_CHUNK_STORE, "readonly");
+    const store = tx.objectStore(ASYNC_UPLOAD_CHUNK_STORE);
+    const request = store.get([uploadUuid, inputName, fileIndex, chunkIndex]);
+    request.onsuccess = () => resolve(request.result?.blob ?? null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function deleteStoredFile(
+  uploadUuid: string,
+  inputName: string,
+  fileIndex: number,
+  totalChunks: number
+): Promise<void> {
+  const db = await getAsyncUploadDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([ASYNC_UPLOAD_CHUNK_STORE, ASYNC_UPLOAD_FILE_STORE], "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    const chunkStore = tx.objectStore(ASYNC_UPLOAD_CHUNK_STORE);
+    for (let index = 0; index < totalChunks; index += 1) {
+      chunkStore.delete([uploadUuid, inputName, fileIndex, index]);
+    }
+    tx.objectStore(ASYNC_UPLOAD_FILE_STORE).delete([uploadUuid, inputName, fileIndex]);
+  });
+}
+
+async function deleteStoredChunk(
+  uploadUuid: string,
+  inputName: string,
+  fileIndex: number,
+  chunkIndex: number
+): Promise<void> {
+  const db = await getAsyncUploadDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(ASYNC_UPLOAD_CHUNK_STORE, "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore(ASYNC_UPLOAD_CHUNK_STORE).delete([uploadUuid, inputName, fileIndex, chunkIndex]);
+  });
+}
+
+type AsyncUploadSessionStorage = {
+  uploadUuid: string;
+  formId: string | null;
+  updatedAt: string;
+};
+
+type AsyncUploadPendingStorage = {
+  uploadUuid: string;
+  formId: string | null;
+  targetId?: string | null;
+  method: string;
+  actionUrl: string;
+  payload: Record<string, unknown>;
+};
+
+function getAsyncUploadSessionKey(form: HTMLFormElement, state: RuntimeState): string | null {
+  const pathname = state.doc.defaultView?.location?.pathname ?? "";
+  const formId = form.id?.trim();
+  if (formId) {
+    return `${ASYNC_UPLOAD_SESSION_PREFIX}${pathname}:form:${formId}`;
+  }
+  const name = form.getAttribute("name")?.trim();
+  if (name) {
+    return `${ASYNC_UPLOAD_SESSION_PREFIX}${pathname}:form-name:${name}`;
+  }
+  const action = form.getAttribute("action")?.trim() ?? form.action?.trim() ?? "";
+  if (action) {
+    return `${ASYNC_UPLOAD_SESSION_PREFIX}${pathname}:form-action:${action}`;
+  }
+  return null;
+}
+
+function readAsyncUploadSessionId(_form: HTMLFormElement, _state: RuntimeState): string | null {
+  return null;
+}
+
+function writeAsyncUploadSessionId(_form: HTMLFormElement, _state: RuntimeState, _uploadUuid: string): void {
+  void _form;
+  void _state;
+  void _uploadUuid;
+}
+
+function resolvePendingSubmissionTarget(
+  session: AsyncUploadSession,
+  parsed: AsyncUploadPendingStorage,
+  state: RuntimeState
+): ParsedRequestTarget | null {
+  const candidates = state.parsed.requestTargets.filter(
+    (target) => target.trigger === "submit" && target.form === session.config.form
+  );
+  if (candidates.length === 0) {
+    return null;
+  }
+  if (parsed.targetId) {
+    const match = candidates.find(
+      (candidate) => candidate.element instanceof HTMLElement && candidate.element.id === parsed.targetId
+    );
+    if (match) {
+      return match;
+    }
+  }
+  return candidates[0];
+}
+
+function readPendingSubmission(session: AsyncUploadSession, state: RuntimeState): AsyncUploadPendingSubmit | null {
+  const key = `${ASYNC_UPLOAD_PENDING_PREFIX}${session.config.uploadUuid}`;
+  let raw: string | null = null;
+  try {
+    raw = state.doc.defaultView?.localStorage?.getItem(key) ?? null;
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to read async upload pending state.", {
+      uploadUuid: session.config.uploadUuid
+    });
+    return null;
+  }
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as AsyncUploadPendingStorage;
+    const target = resolvePendingSubmissionTarget(session, parsed, state);
+    if (!target) {
+      return null;
+    }
+    return {
+      target,
+      payload: parsed.payload ?? {},
+      method: parsed.method,
+      actionUrl: parsed.actionUrl
+    };
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to parse async upload pending state.", {
+      uploadUuid: session.config.uploadUuid
+    });
+    return null;
+  }
+}
+
+function writePendingSubmission(
+  session: AsyncUploadSession,
+  pending: AsyncUploadPendingSubmit,
+  state: RuntimeState
+): void {
+  session.pendingSubmit = pending;
+  const key = `${ASYNC_UPLOAD_PENDING_PREFIX}${session.config.uploadUuid}`;
+  const targetId =
+    pending.target.element instanceof HTMLElement && pending.target.element.id
+      ? pending.target.element.id
+      : null;
+  const record: AsyncUploadPendingStorage = {
+    uploadUuid: session.config.uploadUuid,
+    formId: session.config.formId,
+    targetId,
+    method: pending.method,
+    actionUrl: pending.actionUrl,
+    payload: pending.payload
+  };
+  try {
+    state.doc.defaultView?.localStorage?.setItem(key, JSON.stringify(record));
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to store async upload pending state.", {
+      uploadUuid: session.config.uploadUuid
+    });
+  }
+}
+
+function clearPendingSubmission(session: AsyncUploadSession, state: RuntimeState): void {
+  const key = `${ASYNC_UPLOAD_PENDING_PREFIX}${session.config.uploadUuid}`;
+  try {
+    state.doc.defaultView?.localStorage?.removeItem(key);
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to clear async upload pending state.", {
+      uploadUuid: session.config.uploadUuid
+    });
+  }
+}
+
+function collectFormValuesWithoutFiles(form: HTMLFormElement): FormEntry[] {
+  const controls = Array.from(
+    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+      "input[name], select[name], textarea[name]"
+    )
+  );
+  const entries: FormEntry[] = [];
+
+  for (const control of controls) {
+    if (control.disabled || !control.name) {
+      continue;
+    }
+    if (control instanceof HTMLInputElement) {
+      const type = control.type;
+      if (type === "submit" || type === "button" || type === "reset") {
+        continue;
+      }
+      if (type === "file") {
+        continue;
+      }
+      if (type === "checkbox") {
+        const hasValue = control.hasAttribute("value");
+        if (hasValue) {
+          if (!control.checked) {
+            continue;
+          }
+          entries.push({ name: control.name, value: control.value });
+        } else {
+          entries.push({ name: control.name, value: control.checked });
+        }
+        continue;
+      }
+      if (type === "radio") {
+        if (!control.checked) {
+          continue;
+        }
+        entries.push({ name: control.name, value: control.value });
+        continue;
+      }
+      if (type === "number") {
+        if (control.value === "") {
+          entries.push({ name: control.name, value: null });
+        } else {
+          entries.push({ name: control.name, value: control.valueAsNumber });
+        }
+        continue;
+      }
+    }
+
+    if (control instanceof HTMLSelectElement && control.multiple) {
+      const values = Array.from(control.selectedOptions).map((option) => option.value);
+      entries.push({ name: control.name, value: values });
+      continue;
+    }
+
+    entries.push({ name: control.name, value: control.value });
+  }
+
+  return entries;
+}
+
+function buildAsyncUploadPayload(
+  basePayload: Record<string, unknown>,
+  files: Record<string, FileSubmitValue | FileSubmitValue[]>
+): Record<string, unknown> {
+  const payload = { ...basePayload };
+  for (const [key, value] of Object.entries(files)) {
+    payload[key] = value;
+  }
+  return payload;
+}
+
+async function prepareAsyncUploadSubmission(
+  target: ParsedRequestTarget,
+  state: RuntimeState
+): Promise<{ blocked: boolean; overridePayload?: Record<string, unknown>; overrideUrl?: string }> {
+  const form = target.form;
+  if (!form) {
+    return { blocked: false };
+  }
+  const session = state.asyncUploads.get(form);
+  if (!session || target.method === "GET") {
+    return { blocked: false };
+  }
+  const files = Array.from(session.files.values());
+  if (files.length === 0) {
+    return { blocked: false };
+  }
+  const failed = files.find((file) => file.status === "failed");
+  if (failed) {
+    emitAsyncUploadError(state, "Async upload failed; submission blocked.", {
+      uploadUuid: session.config.uploadUuid,
+      inputName: failed.inputName
+    });
+    return { blocked: true };
+  }
+  const pendingUploads = files.some((file) => file.uploadedChunks < file.totalChunks || file.status === "queued");
+  if (pendingUploads) {
+    const payload = formEntriesToPayload(collectFormValuesWithoutFiles(form));
+    const actionUrl = resolveRequestUrl(target, state).value;
+    writePendingSubmission(session, { target, payload, method: target.method, actionUrl }, state);
+    emitLog(state, {
+      type: "info",
+      message: "upload.pending",
+      detail: { uploadUuid: session.config.uploadUuid, formId: session.config.formId ?? undefined },
+      timestamp: Date.now()
+    });
+    return { blocked: true };
+  }
+  const fileIds = await finalizeUploads(session, state);
+  if (!fileIds) {
+    const payload = formEntriesToPayload(collectFormValuesWithoutFiles(form));
+    const actionUrl = resolveRequestUrl(target, state).value;
+    writePendingSubmission(session, { target, payload, method: target.method, actionUrl }, state);
+    return { blocked: true };
+  }
+  const payload = buildAsyncUploadPayload(formEntriesToPayload(collectFormValuesWithoutFiles(form)), fileIds);
+  return { blocked: false, overridePayload: payload };
+}
+
+async function maybeSubmitPendingAsyncUpload(session: AsyncUploadSession, state: RuntimeState): Promise<void> {
+  if (!session.pendingSubmit) {
+    return;
+  }
+  const files = Array.from(session.files.values());
+  const failed = files.find((file) => file.status === "failed");
+  if (failed) {
+    emitAsyncUploadError(state, "Async upload failed; pending submission blocked.", {
+      uploadUuid: session.config.uploadUuid,
+      inputName: failed.inputName
+    });
+    return;
+  }
+  const pendingUploads = files.some((file) => file.uploadedChunks < file.totalChunks || file.status === "queued");
+  if (pendingUploads) {
+    return;
+  }
+  const fileIds = await finalizeUploads(session, state);
+  if (!fileIds) {
+    return;
+  }
+  const pending = session.pendingSubmit;
+  const payload = buildAsyncUploadPayload(pending.payload, fileIds);
+  clearPendingSubmission(session, state);
+  session.pendingSubmit = null;
+  void handleRequest(pending.target, state, {
+    overridePayload: payload,
+    overrideUrl: pending.actionUrl,
+    skipAsyncGate: true
+  });
+}
+
+async function startAsyncUploadForFile(
+  fileState: AsyncUploadFileState,
+  session: AsyncUploadSession,
+  state: RuntimeState
+): Promise<void> {
+  if (fileState.status === "failed" || fileState.status === "completed") {
+    return;
+  }
+  try {
+    if (session.config.mode === "s3") {
+      await initS3Upload(fileState, session, state);
+      fileState.status = "uploading";
+      upsertAsyncUploadEntry(session, fileState, state);
+      try {
+        await storeFileRecord(fileState);
+      } catch (error) {
+        emitAsyncUploadError(state, "Failed to persist async upload state; continuing in-memory.", {
+          uploadUuid: session.config.uploadUuid,
+          inputName: fileState.inputName,
+          error: error instanceof Error ? error.message : String(error ?? "")
+        });
+      }
+      await uploadFileChunks(fileState, session, state);
+    } else {
+      fileState.status = "uploading";
+      upsertAsyncUploadEntry(session, fileState, state);
+      await uploadSimpleFile(fileState, session, state);
+    }
+  } catch (error) {
+    markAsyncUploadFailed(fileState, session, state, error);
+  }
+}
+
+function pickS3Path(
+  upload: { s3Path?: string; path?: string },
+  fileState: AsyncUploadFileState
+): string {
+  const rawPath = [upload.s3Path, upload.path].find(
+    (value): value is string => typeof value === "string" && value.length > 0
+  );
+  if (rawPath) {
+    return rawPath;
+  }
+  const encodedInput = encodeURIComponent(fileState.inputName);
+  const encodedName = encodeURIComponent(fileState.fileName);
+  return `/s3/${fileState.fileUuid}/${encodedInput}/${encodedName}`;
+}
+
+function pickSimplePath(payload: unknown, fileState: AsyncUploadFileState): string {
+  const path =
+    typeof (payload as { path?: unknown })?.path === "string" && (payload as { path: string }).path.length > 0
+      ? (payload as { path: string }).path
+      : typeof (payload as { fileId?: unknown })?.fileId === "string" &&
+          (payload as { fileId: string }).fileId.length > 0
+        ? (payload as { fileId: string }).fileId
+        : null;
+  if (path) {
+    return path;
+  }
+  const encodedInput = encodeURIComponent(fileState.inputName);
+  const encodedName = encodeURIComponent(fileState.fileName);
+  return `/simple/${fileState.fileUuid}/${encodedInput}/${encodedName}`;
+}
+
+async function initS3Upload(
+  fileState: AsyncUploadFileState,
+  session: AsyncUploadSession,
+  state: RuntimeState
+): Promise<void> {
+  if (fileState.uploadId && fileState.partUrls && fileState.partUrls.length > 0) {
+    return;
+  }
+  const base = session.config.uploaderUrl?.replace(/\/$/, "") ?? "";
+  const response = await fetch(`${resolveUploaderUrl(base, state.doc)}/init`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      files: [
+        {
+          inputName: fileState.inputName,
+          fileName: fileState.fileName,
+          size: fileState.size,
+          mime: fileState.mime,
+          chunks: fileState.totalChunks
+        }
+      ]
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`S3 init failed: ${response.status}`);
+  }
+  const payload = (await safeJson(response)) as
+    | {
+        uploads?: Array<{
+          inputName?: string;
+          uploadId?: string;
+          s3Path?: string;
+          path?: string;
+          parts?: Array<{ partNumber?: number; url?: string }>;
+        }>;
+      }
+    | null;
+  const upload = Array.isArray(payload?.uploads)
+    ? payload.uploads.find((entry) => entry?.inputName === fileState.inputName)
+    : null;
+  if (!upload) {
+    throw new Error("S3 init missing upload metadata.");
+  }
+  const s3Path = pickS3Path(upload, fileState);
+  const parts = Array.isArray(upload.parts) ? upload.parts.slice() : [];
+  parts.sort((a: { partNumber?: number }, b: { partNumber?: number }) => (a.partNumber ?? 0) - (b.partNumber ?? 0));
+  const urls = parts
+    .map((part: { url?: string }) => part.url)
+    .filter((url): url is string => typeof url === "string" && url.length > 0);
+  if (urls.length !== fileState.totalChunks) {
+    throw new Error("S3 init returned mismatched part count.");
+  }
+  fileState.uploadId = upload.uploadId;
+  fileState.s3Path = s3Path;
+  fileState.partUrls = urls;
+  fileState.partEtags = new Array(fileState.totalChunks).fill(null);
+  try {
+    await storeFileRecord(fileState);
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to persist S3 init metadata; continuing in-memory.", {
+      uploadUuid: fileState.uploadUuid,
+      inputName: fileState.inputName,
+      error: error instanceof Error ? error.message : String(error ?? "")
+    });
+  }
+}
+
+async function uploadSimpleFile(
+  fileState: AsyncUploadFileState,
+  session: AsyncUploadSession,
+  state: RuntimeState
+): Promise<void> {
+  if (!fileState.file) {
+    throw new Error("Missing file data for simple upload.");
+  }
+  const uploadFile = fileState.file;
+  const base = session.config.uploaderUrl?.replace(/\/$/, "") ?? "";
+  if (!base) {
+    throw new Error("Simple upload requires uploader URL.");
+  }
+  const targetUrl = resolveUploaderUrl(base, state.doc);
+  const formData = new FormData();
+  formData.append("inputName", fileState.inputName);
+  formData.append("fileName", fileState.fileName);
+  formData.append("size", String(fileState.size));
+  formData.append("mime", fileState.mime);
+  formData.append(fileState.inputName, uploadFile, fileState.fileName);
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", targetUrl);
+    xhr.upload.onprogress = (event) => {
+      const progress = event.total > 0 ? event.loaded / event.total : 0;
+      fileState.inFlightProgress.set(0, progress);
+      emitLog(state, {
+        type: "info",
+        message: "upload.simple.progress",
+        detail: {
+          uploadUuid: fileState.fileUuid,
+          inputName: fileState.inputName,
+          loaded: event.loaded,
+          total: event.total
+        },
+        timestamp: Date.now()
+      });
+      upsertAsyncUploadEntry(session, fileState, state);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const text = xhr.responseText ?? "";
+        let payload: unknown = null;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          payload = null;
+        }
+        const path = pickSimplePath(payload, fileState);
+        fileState.fileId = path;
+        fileState.uploadedChunks = fileState.totalChunks;
+        fileState.inFlightProgress.delete(0);
+        fileState.status = "completed";
+        upsertAsyncUploadEntry(session, fileState, state);
+        emitLog(state, {
+          type: "info",
+          message: "upload.simple.complete",
+          detail: {
+            uploadUuid: fileState.fileUuid,
+            inputName: fileState.inputName,
+            path
+          },
+          timestamp: Date.now()
+        });
+        void storeFileRecord(fileState).catch((error) => {
+          emitAsyncUploadError(state, "Failed to persist simple upload completion; continuing.", {
+            uploadUuid: fileState.uploadUuid,
+            inputName: fileState.inputName,
+            error: error instanceof Error ? error.message : String(error ?? "")
+          });
+        });
+        fileState.file = undefined;
+        resolve();
+      } else {
+        fileState.file = undefined;
+        reject(new Error(`Simple upload failed: ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => {
+      fileState.file = undefined;
+      reject(new Error("Simple upload network error."));
+    };
+    xhr.send(formData);
+  });
+  await maybeSubmitPendingAsyncUpload(session, state);
+}
+
+async function uploadFileChunks(
+  fileState: AsyncUploadFileState,
+  session: AsyncUploadSession,
+  state: RuntimeState
+): Promise<void> {
+  const concurrency = session.config.concurrency;
+  const pendingChunks: number[] = [];
+  if (session.config.mode === "s3") {
+    if (!fileState.partEtags) {
+      fileState.partEtags = new Array(fileState.totalChunks).fill(null);
+    }
+    for (let index = 0; index < fileState.totalChunks; index += 1) {
+      if (!fileState.partEtags[index]) {
+        pendingChunks.push(index);
+      }
+    }
+  } else {
+    for (let index = fileState.uploadedChunks; index < fileState.totalChunks; index += 1) {
+      pendingChunks.push(index);
+    }
+  }
+
+  if (pendingChunks.length === 0) {
+    await maybeSubmitPendingAsyncUpload(session, state);
+    return;
+  }
+
+  let aborted = false;
+  let active = 0;
+
+  await new Promise<void>((resolve) => {
+    const runNext = () => {
+      if (aborted) {
+        if (active === 0) {
+          resolve();
+        }
+        return;
+      }
+      while (active < concurrency && pendingChunks.length > 0) {
+        const chunkIndex = pendingChunks.shift() ?? 0;
+        active += 1;
+        void uploadChunk(fileState, session, state, chunkIndex)
+          .catch((error) => {
+            aborted = true;
+            markAsyncUploadFailed(fileState, session, state, error);
+          })
+          .finally(() => {
+            active -= 1;
+            runNext();
+            if (!aborted && active === 0 && pendingChunks.length === 0) {
+              resolve();
+            }
+          });
+      }
+    };
+
+    runNext();
+  });
+
+  if (session.config.mode === "s3" && fileState.file && pendingChunks.length === 0 && !aborted) {
+    fileState.file = undefined;
+  }
+
+  await maybeSubmitPendingAsyncUpload(session, state);
+}
+
+async function uploadChunk(
+  fileState: AsyncUploadFileState,
+  session: AsyncUploadSession,
+  state: RuntimeState,
+  chunkIndex: number
+): Promise<void> {
+  fileState.inFlightProgress.set(chunkIndex, 0);
+  emitLog(state, {
+    type: "info",
+    message: "upload.chunk.start",
+    detail: {
+      uploadUuid: fileState.fileUuid,
+      inputName: fileState.inputName,
+      chunkIndex,
+      totalChunks: fileState.totalChunks
+    },
+    timestamp: Date.now()
+  });
+  let blob: Blob | null = null;
+  try {
+    blob = await loadChunkBlob(fileState.uploadUuid, fileState.inputName, fileState.fileIndex, chunkIndex);
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to read chunk from IndexedDB; using in-memory slice fallback.", {
+      uploadUuid: fileState.uploadUuid,
+      inputName: fileState.inputName,
+      chunkIndex,
+      error: error instanceof Error ? error.message : String(error ?? "")
+    });
+  }
+  if (!blob && fileState.file) {
+    const start = chunkIndex * fileState.chunkSizeBytes;
+    const end = Math.min(fileState.size, start + fileState.chunkSizeBytes);
+    blob = fileState.file.slice(start, end);
+  }
+  if (!blob) {
+    throw new Error("Missing chunk data.");
+  }
+  if (session.config.mode === "s3") {
+    await uploadChunkToS3(fileState, session, state, chunkIndex, blob);
+  } else {
+    throw new Error("Chunk upload is only supported for S3 mode.");
+  }
+  blob = null as unknown as Blob;
+  fileState.inFlightProgress.delete(chunkIndex);
+  fileState.uploadedChunks = Math.min(fileState.totalChunks, fileState.uploadedChunks + 1);
+  upsertAsyncUploadEntry(session, fileState, state);
+  try {
+    await storeFileRecord(fileState);
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to update async upload progress in storage; continuing in-memory.", {
+      uploadUuid: fileState.uploadUuid,
+      inputName: fileState.inputName,
+      chunkIndex,
+      error: error instanceof Error ? error.message : String(error ?? "")
+    });
+  }
+  try {
+    await deleteStoredChunk(fileState.uploadUuid, fileState.inputName, fileState.fileIndex, chunkIndex);
+  } catch (error) {
+    emitAsyncUploadError(state, "Failed to prune uploaded chunk from IndexedDB; continuing.", {
+      uploadUuid: fileState.uploadUuid,
+      inputName: fileState.inputName,
+      chunkIndex,
+      error: error instanceof Error ? error.message : String(error ?? "")
+    });
+  }
+  emitLog(state, {
+    type: "info",
+    message: "upload.chunk.complete",
+    detail: {
+      uploadUuid: fileState.fileUuid,
+      inputName: fileState.inputName,
+      chunkIndex
+    },
+    timestamp: Date.now()
+  });
+}
+
+async function uploadChunkToS3(
+  fileState: AsyncUploadFileState,
+  session: AsyncUploadSession,
+  state: RuntimeState,
+  chunkIndex: number,
+  blob: Blob
+): Promise<void> {
+  const url = fileState.partUrls?.[chunkIndex];
+  if (!url) {
+    throw new Error("Missing S3 part URL.");
+  }
+  const result = await uploadChunkWithXhr(url, "PUT", blob, {}, (loaded, total) => {
+    const progress = total > 0 ? loaded / total : 0;
+    fileState.inFlightProgress.set(chunkIndex, progress);
+    emitLog(state, {
+      type: "info",
+      message: "upload.chunk.progress",
+      detail: {
+        uploadUuid: fileState.fileUuid,
+        inputName: fileState.inputName,
+        chunkIndex,
+        loaded,
+        total
+      },
+      timestamp: Date.now()
+    });
+    upsertAsyncUploadEntry(session, fileState, state);
+  });
+  const etag = result.etag ?? `etag-${chunkIndex + 1}`;
+  if (!fileState.partEtags) {
+    fileState.partEtags = new Array(fileState.totalChunks).fill(null);
+  }
+  fileState.partEtags[chunkIndex] = etag;
+}
+
+type FileSubmitValue = { fileId: string; contentType: string; fileName: string; fileSize: number };
+
+async function finalizeUploads(
+  session: AsyncUploadSession,
+  state: RuntimeState
+): Promise<Record<string, FileSubmitValue | FileSubmitValue[]> | null> {
+  const files = Array.from(session.files.values());
+  if (session.config.mode === "simple") {
+    const missing = files.find((file) => !file.fileId);
+    if (missing) {
+      emitAsyncUploadError(state, "Simple upload missing fileId/path.", {
+        uploadUuid: session.config.uploadUuid,
+        inputName: missing.inputName
+      });
+      return null;
+    }
+    return mapFilePayloads(files);
+  }
+  const pending = files.filter((file) => file.uploadedChunks >= file.totalChunks && !file.fileId);
+  if (pending.length === 0) {
+    return mapFilePayloads(files);
+  }
+  for (const file of pending) {
+    file.status = "finalizing";
+    upsertAsyncUploadEntry(session, file, state);
+    try {
+      await storeFileRecord(file);
+    } catch (error) {
+      emitAsyncUploadError(state, "Failed to persist async upload state before finalize; continuing.", {
+        uploadUuid: session.config.uploadUuid,
+        inputName: file.inputName,
+        error: error instanceof Error ? error.message : String(error ?? "")
+      });
+    }
+  }
+  emitLog(state, {
+    type: "info",
+    message: "upload.finalize.start",
+    detail: { uploadUuid: session.config.uploadUuid },
+    timestamp: Date.now()
+  });
+  const fileIds = await finalizeS3Uploads(session, pending, state);
+  if (!fileIds) {
+    for (const file of pending) {
+      file.status = "failed";
+      file.lastError = file.lastError ?? "Finalize failed.";
+      upsertAsyncUploadEntry(session, file, state);
+      try {
+        await storeFileRecord(file);
+      } catch (error) {
+        emitAsyncUploadError(state, "Failed to persist async upload failure; continuing.", {
+          uploadUuid: session.config.uploadUuid,
+          inputName: file.inputName,
+          error: error instanceof Error ? error.message : String(error ?? "")
+        });
+      }
+    }
+    return null;
+  }
+  for (const file of pending) {
+    const value = fileIds[file.inputName];
+    let resolved: string | undefined;
+    if (Array.isArray(value)) {
+      resolved = value[file.fileIndex] ?? value[0];
+    } else if (typeof value === "string") {
+      resolved = value;
+    }
+    if (session.config.mode === "s3") {
+      resolved = file.s3Path ?? resolved;
+    }
+    if (resolved) {
+      file.fileId = resolved;
+    }
+    file.status = "completed";
+    upsertAsyncUploadEntry(session, file, state);
+    try {
+      await storeFileRecord(file);
+    } catch (error) {
+      emitAsyncUploadError(state, "Failed to persist finalized async upload; continuing.", {
+        uploadUuid: session.config.uploadUuid,
+        inputName: file.inputName,
+        error: error instanceof Error ? error.message : String(error ?? "")
+      });
+    }
+  }
+  emitLog(state, {
+    type: "info",
+    message: "upload.finalize.complete",
+    detail: { uploadUuid: session.config.uploadUuid },
+    timestamp: Date.now()
+  });
+  return mapFilePayloads(files);
+}
+
+async function finalizeS3Uploads(
+  session: AsyncUploadSession,
+  files: AsyncUploadFileState[],
+  state: RuntimeState
+): Promise<Record<string, string | string[]> | null> {
+  const base = session.config.uploaderUrl?.replace(/\/$/, "") ?? "";
+  const uploads = files.map((file) => {
+    if (!file.uploadId || !file.partEtags) {
+      throw new Error("Missing S3 upload metadata.");
+    }
+    const parts = file.partEtags.map((etag, index) => {
+      if (!etag) {
+        throw new Error("Missing S3 part ETag.");
+      }
+      return { PartNumber: index + 1, ETag: etag };
+    });
+    const path = file.s3Path ?? pickS3Path({}, file);
+    return { inputName: file.inputName, uploadId: file.uploadId, path, s3Path: path, parts };
+  });
+  const response = await fetch(`${resolveUploaderUrl(base, state.doc)}/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      uploads
+    })
+  });
+  if (!response.ok) {
+    emitAsyncUploadError(state, "S3 finalize failed.", {
+      status: response.status
+    });
+    return null;
+  }
+  const payload = await safeJson(response);
+  const mapped = mapFinalizeFiles(payload);
+  for (const file of files) {
+    if (!mapped[file.inputName]) {
+      mapped[file.inputName] = file.s3Path ?? pickS3Path({}, file);
+    }
+  }
+  return mapped;
+}
+
+function mapFinalizeFiles(payload: unknown): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  const files = Array.isArray((payload as { files?: unknown[] })?.files)
+    ? (payload as { files: Array<{ inputName?: string; fileId?: string; s3Path?: string; path?: string }> }).files
+    : [];
+  for (const entry of files) {
+    const id = [entry?.s3Path, entry?.path, entry?.fileId].find(
+      (value): value is string => typeof value === "string" && value.length > 0
+    );
+    if (!entry?.inputName || !id) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(result, entry.inputName)) {
+      const existing = result[entry.inputName];
+      if (Array.isArray(existing)) {
+        existing.push(id);
+      } else {
+        result[entry.inputName] = [existing as string, id];
+      }
+    } else {
+      result[entry.inputName] = id;
+    }
+  }
+  return result;
+}
+
+function resolveUploaderUrl(base: string, doc: Document): string {
+  try {
+    const resolved = new URL(base, doc.baseURI ?? doc.defaultView?.location?.href ?? undefined);
+    return resolved.toString().replace(/\/$/, "");
+  } catch {
+    return base;
+  }
+}
+
+function mapFilePayloads(files: AsyncUploadFileState[]): Record<string, FileSubmitValue | FileSubmitValue[]> {
+  const result: Record<string, FileSubmitValue | FileSubmitValue[]> = {};
+  for (const file of files) {
+    if (!file.fileId) {
+      continue;
+    }
+    const value: FileSubmitValue = {
+      fileId: file.fileId,
+      contentType: file.mime,
+      fileName: file.fileName,
+      fileSize: file.size
+    };
+    if (Object.prototype.hasOwnProperty.call(result, file.inputName)) {
+      const existing = result[file.inputName];
+      if (Array.isArray(existing)) {
+        existing.push(value);
+      } else {
+        result[file.inputName] = [existing as FileSubmitValue, value];
+      }
+    } else {
+      result[file.inputName] = value;
+    }
+  }
+  return result;
+}
+
+async function uploadChunkWithXhr(
+  url: string,
+  method: "PUT" | "PATCH",
+  body: Blob,
+  headers: Record<string, string>,
+  onProgress: (loaded: number, total: number) => void
+): Promise<{ status: number; etag: string | null }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    for (const [key, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(key, value);
+    }
+    xhr.upload.onprogress = (event) => {
+      onProgress(event.loaded, event.total);
+    };
+    xhr.onload = () => {
+      const etag = xhr.getResponseHeader("ETag");
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ status: xhr.status, etag });
+      } else {
+        reject(new Error(`Chunk upload failed: ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Chunk upload network error."));
+    xhr.send(body);
+  });
+}
+
+function markAsyncUploadFailed(
+  fileState: AsyncUploadFileState,
+  session: AsyncUploadSession,
+  state: RuntimeState,
+  error: unknown
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  fileState.status = "failed";
+  fileState.lastError = message;
+  fileState.file = undefined;
+  fileState.inFlightProgress.clear();
+  upsertAsyncUploadEntry(session, fileState, state);
+  void storeFileRecord(fileState).catch((storeError) => {
+    emitAsyncUploadError(state, "Failed to persist failed async upload state; continuing.", {
+      uploadUuid: fileState.fileUuid,
+      inputName: fileState.inputName,
+      error: storeError instanceof Error ? storeError.message : String(storeError ?? "")
+    });
+  });
+  emitLog(state, {
+    type: "error",
+    message: "upload.failed",
+    detail: {
+      uploadUuid: fileState.fileUuid,
+      inputName: fileState.inputName,
+      error: message
+    },
     timestamp: Date.now()
   });
 }
@@ -2724,6 +4437,13 @@ function resolveNavigationUrl(urlString: string, doc: Document): URL | null {
   }
 }
 
+function stripAsyncUploadAttributes(form: HTMLFormElement): void {
+  const attrs = ["hy-async-upload", "hy-uploader-url", "hy-file-chunksize", "hy-after-submit-action"];
+  for (const attr of attrs) {
+    form.removeAttribute(attr);
+  }
+}
+
 async function navigateWithHashFallback(canonicalUrl: string, fallbackUrl: string, view: Window): Promise<void> {
   const shouldUseFallback = !(await probeCanonicalUrl(canonicalUrl));
   view.location.assign(shouldUseFallback ? fallbackUrl : canonicalUrl);
@@ -2897,12 +4617,19 @@ function dispatchCommandIfNeeded(target: ParsedRequestTarget, state: RuntimeStat
   }
 }
 
-function applyRequestPayload(target: ParsedRequestTarget, payload: unknown, state: RuntimeState): void {
+function applyRequestPayload(
+  target: ParsedRequestTarget,
+  payload: unknown,
+  state: RuntimeState,
+  options: { skipRedirect?: boolean } = {}
+): void {
   applyStore(target, payload, state);
   if (target.fillInto) {
     applyFillInto(target.fillInto, payload, state);
   }
-  maybeRedirectAfterSubmit(target, payload, state);
+  if (!options.skipRedirect) {
+    maybeRedirectAfterSubmit(target, payload, state);
+  }
   cleanupRequestTarget(target);
   if (target.store) {
     const cascadedStores = handleCascadeStoreUpdate(target.store, state);
@@ -2989,7 +4716,17 @@ function recordRedirectError(state: RuntimeState, url: string, message: string):
   }
 }
 
-async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<boolean> {
+type RequestOverrideOptions = {
+  overridePayload?: Record<string, unknown>;
+  overrideUrl?: string;
+  skipAsyncGate?: boolean;
+};
+
+async function handleRequest(
+  target: ParsedRequestTarget,
+  state: RuntimeState,
+  options: RequestOverrideOptions = {}
+): Promise<boolean> {
   const { element } = target;
   if (!element.isConnected) {
     return false;
@@ -3016,15 +4753,45 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
     return false;
   }
 
+  const isSubmitTarget = target.trigger === "submit" && target.form;
+  const session = target.form ? state.asyncUploads.get(target.form) ?? null : null;
+  const redirectAttr = isSubmitTarget ? getRedirectAttribute(target) : null;
+  const afterSubmitAction: AfterSubmitAction = session?.config.afterSubmitAction ?? "keep";
+  const afterSubmitActionPresent = session?.config.afterSubmitActionPresent ?? false;
+  const redirectConflict = Boolean(session?.config.redirectConflict) || (Boolean(redirectAttr) && afterSubmitActionPresent);
+  if (redirectConflict && target.form) {
+    emitAsyncUploadError(state, "hy-redirect and hy-after-submit-action cannot be used together.", {
+      formId: target.form.id || undefined
+    });
+  }
+  const shouldDisableForRedirect = Boolean(isSubmitTarget && target.form && redirectAttr && !redirectConflict);
+  let disabledForRedirect = false;
+
+  let overridePayload = options.overridePayload;
+  let overrideUrl = options.overrideUrl;
+  if (!options.skipAsyncGate) {
+    const gate = await prepareAsyncUploadSubmission(target, state);
+    if (gate.blocked) {
+      return false;
+    }
+    if (gate.overridePayload) {
+      overridePayload = gate.overridePayload;
+    }
+    if (gate.overrideUrl) {
+      overrideUrl = gate.overrideUrl;
+    }
+  }
+
   if (target.form && target.trigger === "submit") {
     clearFormStateOnRequest(target, state);
   }
 
   const resolvedUrl = resolveRequestUrl(target, state);
+  const requestUrl = overrideUrl ?? resolvedUrl.value;
 
   maybeUpdateHistoryOnSubmit(target, state);
 
-  const { finalUrl, init, logDetail } = buildRequestInit(target, resolvedUrl.value, state.doc);
+  const { finalUrl, init, logDetail } = buildRequestInit(target, requestUrl, state.doc, overridePayload);
 
   const method = target.method;
   const dedupeKey = method === "GET" ? finalUrl : null;
@@ -3048,8 +4815,13 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
   if (target.kind === "fetch" && target.store) {
     markCascadeRequestPending(target, state);
   }
+  if (shouldDisableForRedirect && target.form) {
+    disableFormControls(target.form, state);
+    disabledForRedirect = true;
+  }
 
   const requestId = ++state.requestCounter;
+  let clearPromise: Promise<void> | null = null;
   emitLog(state, {
     type: "request",
     message: `request:start(${requestId})`,
@@ -3071,11 +4843,11 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
       emitLog(state, {
         type: "request",
         message: `request:complete(${requestId})`,
-        detail: { url: finalUrl, method, status: response.status, mocked: response.mocked },
-        timestamp: Date.now()
-      });
-      if (!response.ok) {
-        recordError(
+      detail: { url: finalUrl, method, status: response.status, mocked: response.mocked },
+      timestamp: Date.now()
+    });
+    if (!response.ok) {
+      recordError(
           state,
           new Error(`Request failed: ${response.status}`),
           finalUrl,
@@ -3084,13 +4856,16 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
         );
         return;
       }
-      applyRequestPayload(target, response.data, state);
+      applyRequestPayload(target, response.data, state, { skipRedirect: redirectConflict });
       if (dedupeKey) {
         const entry = state.requestCache.get(dedupeKey);
         if (entry) {
           entry.payload = response.data;
           entry.payloadSet = true;
         }
+      }
+      if (isSubmitTarget && target.form && !redirectConflict && !redirectAttr && afterSubmitAction === "clear" && session) {
+        clearPromise = scheduleClearAfterSubmit(target.form, session, state);
       }
       succeeded = true;
     })
@@ -3114,6 +4889,12 @@ async function handleRequest(target: ParsedRequestTarget, state: RuntimeState): 
   }
 
   await requestPromise;
+  if (!succeeded && disabledForRedirect && target.form) {
+    restoreFormControls(target.form, state);
+  }
+  if (clearPromise) {
+    await clearPromise;
+  }
   return succeeded;
 }
 
@@ -3550,7 +5331,8 @@ async function resolvePollingMockPayload(
 function buildRequestInit(
   target: ParsedRequestTarget,
   resolvedUrl: string,
-  doc: Document
+  doc: Document,
+  overridePayload?: Record<string, unknown>
 ): { finalUrl: string; init: RequestInit; logDetail?: Record<string, unknown> } {
   let finalUrl = resolvedUrl;
   const init: RequestInit = { method: target.method };
@@ -3562,6 +5344,11 @@ function buildRequestInit(
   if (form) {
     if (target.method === "GET") {
       finalUrl = appendFormParams(resolvedUrl, form, doc);
+    } else if (overridePayload) {
+      encoding = "application/json";
+      payload = overridePayload;
+      init.headers = { "Content-Type": "application/json" };
+      init.body = JSON.stringify(payload);
     } else {
       const entries = collectFormValues(form);
       const hasFile = entries.some((entry) => entryHasFile(entry.value));
@@ -3593,6 +5380,8 @@ function buildRequestInit(
         init.body = JSON.stringify(payload);
       }
 
+    }
+    if (target.method !== "GET") {
       logDetail = {
         contentType: (init.headers as Record<string, string> | undefined)?.["Content-Type"] ?? encoding,
         payload: payload ?? {}

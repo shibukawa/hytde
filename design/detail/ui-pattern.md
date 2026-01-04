@@ -106,6 +106,6 @@ Notes:
 - Use: `<form hy-post>`, `<hy-get-stream>`/`<hy-sse>` for progress, `hy-store`.
 - Status: Not implemented; task ID lifecycle and local persistence are not specified.
 
-## 11. Async upload (S3 multipart / tus)
-- Use: `<form hy-async-upload="s3|tus">`, `hy-file-chunksize`, `hy.uploading`, indexedDB + localStorage persistence, JSON submit with finalized file IDs.
-- Status: Not implemented; detailed spec in `design/detail/async-file-uploading.md`.
+## 11. Async upload (S3 multipart / simple)
+- Use: `<form hy-async-upload="s3|simple">` (default simple when empty), `hy-file-chunksize` (S3 only), `hy.uploading`, IndexedDB + localStorage persistence (S3), JSON submit with finalized paths/IDs.
+- Status: In progress per `design/detail/async-file-uploading.md`.

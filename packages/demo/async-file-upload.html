@@ -123,6 +123,7 @@
                   hy-file-chunksize="10"
                   hy-post="/api/uploads/submit/s3"
                   hy-store="s3Result"
+                  hy-after-submit-action="clear"
                 >
                   <h3 class="text-lg font-semibold">S3 Multipart Upload</h3>
                   <p class="mt-1 text-xs text-base-content/60">
@@ -144,8 +145,14 @@
                     </label>
                   </div>
                   <label class="mt-3 flex flex-col gap-1 text-xs uppercase tracking-wide text-base-content/60">
-                    File
-                    <input class="file-input file-input-bordered file-input-sm" name="file" type="file" required />
+                    File(s)
+                    <input
+                      class="file-input file-input-bordered file-input-sm"
+                      name="file"
+                      type="file"
+                      multiple
+                      required
+                    />
                   </label>
                   <button class="btn btn-primary btn-sm mt-4" type="submit">Submit (S3)</button>
                 </form>
@@ -178,6 +185,7 @@
                   hy-uploader-url="/api/uploads/simple"
                   hy-post="/api/uploads/submit/simple"
                   hy-store="simpleResult"
+                  hy-after-submit-action="clear"
                 >
                   <h3 class="text-lg font-semibold">Simple Multipart Upload</h3>
                   <p class="mt-1 text-xs text-base-content/60">
@@ -292,8 +300,6 @@
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       const normalizeToken = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
-      const buildUploadId = (uploadUuid, inputName) =>
-        `s3-${normalizeToken(uploadUuid)}-${normalizeToken(inputName)}`;
       const buildS3Path = (uploadUuid, inputName, fileName = "file.bin") =>
         `/s3/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
       const buildSimplePath = (uploadUuid, inputName, fileName = "file.bin") =>
@@ -301,20 +307,23 @@
 
       globalThis.hy.mockServiceWorker(
         http.post("/api/uploads/s3/init", async ({ request }) => {
-          const body = await request.json();
-          const uploadUuid = String(body?.uploadUuid ?? "");
-          const files = Array.isArray(body?.files) ? body.files : [];
+          const body = await request.json().catch(() => ({}));
+          const uploadId = crypto.randomUUID();
+          const files =
+            Array.isArray(body?.files) && body.files.length > 0
+              ? body.files
+              : [{ inputName: "file", chunks: 1, fileName: "file.bin" }];
           const uploads = files.map((file) => {
             const inputName = String(file?.inputName ?? "file");
             const chunks = Number(file?.chunks ?? 1);
             const fileName = String(file?.fileName ?? "file.bin");
             return {
               inputName,
-              uploadId: buildUploadId(uploadUuid, inputName),
-              s3Path: buildS3Path(uploadUuid, inputName, fileName),
+              uploadId,
+              s3Path: buildS3Path(uploadId, inputName, fileName),
               parts: Array.from({ length: Math.max(1, chunks) }, (_, index) => ({
                 partNumber: index + 1,
-                url: `/api/uploads/s3/part/${uploadUuid}/${encodeURIComponent(inputName)}/${index + 1}`
+                url: `/api/uploads/s3/part/${uploadId}/${encodeURIComponent(inputName)}/${index + 1}`
               }))
             };
           });
@@ -332,7 +341,6 @@
         }),
         http.post("/api/uploads/s3/complete", async ({ request }) => {
           const body = await request.json();
-          const uploadUuid = String(body?.uploadUuid ?? "upload");
           const uploads = Array.isArray(body?.uploads) ? body.uploads : [];
           const files = uploads.map((upload, index) => {
             const inputName = String(upload?.inputName ?? "file");
@@ -341,7 +349,7 @@
                 ? upload.path
                 : typeof upload?.s3Path === "string" && upload.s3Path.length > 0
                   ? upload.s3Path
-                  : buildS3Path(uploadUuid, inputName, `file-${index + 1}`)) ?? "";
+                  : buildS3Path(crypto.randomUUID(), inputName, `file-${index + 1}`)) ?? "";
             return {
               inputName,
               fileId: s3Path,
@@ -358,10 +366,9 @@
         }),
         http.post("/api/uploads/simple", async ({ request }) => {
           const formData = await request.formData();
-          const uploadUuid = String(formData.get("uploadUuid") ?? "upload");
           const inputName = String(formData.get("inputName") ?? "file");
           const fileName = String(formData.get("fileName") ?? "file.bin");
-          const path = buildSimplePath(uploadUuid, inputName, fileName);
+          const path = buildSimplePath(crypto.randomUUID(), inputName, fileName);
           await sleep(150);
           return HttpResponse.json({ inputName, path });
         }),
