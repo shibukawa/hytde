@@ -8,8 +8,6 @@ export function installMockServiceWorkerStub(scope: typeof globalThis): void {
     return;
   }
   hy.mockServiceWorker = () => {
-    if (typeof console !== "undefined") {
-      console.warn("Mocking is disabled in production.");
-    }
+    console.warn("Mocking is disabled in production.");
   };
 }

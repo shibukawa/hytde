@@ -35,13 +35,6 @@ export default defineConfig({
           fileURLToPath(new URL(".", import.meta.url)),
           "../standalone/src/debug-api.ts"
         )
-      },
-      {
-        find: /^@hytde\/extable-bundle$/,
-        replacement: resolve(
-          fileURLToPath(new URL(".", import.meta.url)),
-          "../extable-bundle/src/index.ts"
-        )
       }
     ]
   }

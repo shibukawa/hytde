@@ -7,7 +7,6 @@ import {
 } from "@hytde/parser";
 import {
   countTableMarkers,
-  ensureExtableBundle,
   ensureExtableStylesheet,
   ensureTableApiStub
 } from "./table-support";
@@ -53,7 +52,6 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   const parsed = parseDocument(doc);
   if (mode !== "disable" && countTableMarkers(doc) > 0) {
     ensureExtableStylesheet(doc);
-    await ensureExtableBundle(scope);
   }
   runtime.init(parsed);
   if (errors.length > 0) {
@@ -70,10 +68,8 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
       }));
       hy.errors = [...hy.errors, ...nextErrors];
     }
-    if (typeof console !== "undefined") {
-      for (const error of errors) {
-        console.error("[hytde] import error", error);
-      }
+    for (const error of errors) {
+      console.error("[hytde] import error", error);
     }
   }
   if (importLogs.length > 0) {
@@ -115,9 +111,7 @@ function emitBufferedLogs(scope: typeof globalThis, entries: HyLogEntry[]): void
         try {
           callback(entry);
         } catch (error) {
-          if (typeof console !== "undefined") {
-            console.error("[hytde] log callback error", error);
-          }
+          console.error("[hytde] log callback error", error);
         }
       }
     }

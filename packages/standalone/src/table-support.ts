@@ -55,14 +55,6 @@ export function ensureExtableStylesheet(doc: Document): void {
   head.append(link);
 }
 
-export async function ensureExtableBundle(scope: typeof globalThis): Promise<void> {
-  const holder = scope as typeof globalThis & { ExtableCore?: unknown };
-  if (typeof holder.ExtableCore === "function") {
-    return;
-  }
-  await import("@hytde/extable-bundle");
-}
-
 export function countTableMarkers(doc: Document): number {
   return doc.querySelectorAll("table[hy-table-data]").length;
 }

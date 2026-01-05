@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <title>Acceptance - Async Upload Redirect</title>
+  </head>
+  <body>
+    <form
+      action="/api/uploads/submit/simple"
+      method="post"
+      enctype="multipart/form-data"
+      hy-async-upload
+      hy-uploader-url="/api/uploads/simple"
+      hy-post="/api/uploads/submit/simple"
+      hy-redirect="/acceptance/basic.html"
+    >
+      <label>
+        Title
+        <input name="title" />
+      </label>
+      <label>
+        File
+        <input name="file" type="file" required />
+      </label>
+      <button type="submit">Submit</button>
+    </form>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
+    <script type="module" hy-debug>
+      import { http, HttpResponse } from "msw";
+      import "@hytde/standalone/debug-api";
+
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const normalizeToken = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const buildSimplePath = (uploadUuid, inputName, fileName = "file.bin") =>
+        `/simple/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
+
+      globalThis.hy.mockServiceWorker(
+        http.post("/api/uploads/simple", async ({ request }) => {
+          const formData = await request.formData();
+          const inputName = String(formData.get("inputName") ?? "file");
+          const fileName = String(formData.get("fileName") ?? "file.bin");
+          const path = buildSimplePath(crypto.randomUUID(), inputName, fileName);
+          await sleep(100);
+          return HttpResponse.json({ inputName, fileId: path, path });
+        }),
+        http.post("/api/uploads/submit/simple", async ({ request }) => {
+          const payload = await request.json().catch(() => ({}));
+          await sleep(50);
+          return HttpResponse.json(payload ?? {});
+        })
+      );
+    </script>
+  </body>
+</html>

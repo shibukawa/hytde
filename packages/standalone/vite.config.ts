@@ -61,7 +61,12 @@ export default defineConfig(() => {
         },
         output: {
           entryFileNames: "index.js",
-          inlineDynamicImports: true
+          manualChunks: (id) => {
+            if (id.includes("extable-core") || id.includes("@extable/core")) {
+              return "extable-core";
+            }
+            return undefined;
+          }
         }
       }
     },

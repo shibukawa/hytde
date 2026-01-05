@@ -26,9 +26,6 @@ export function registerDebugLogger(): void {
   }
 
   callbacks.push((entry) => {
-    if (typeof console === "undefined") {
-      return;
-    }
     if (entry.type === "error") {
       console.error("[hytde]", entry.message, entry.detail ?? {});
       return;

@@ -5,9 +5,7 @@ import { registerGlobalInit } from "../../src/entry-utils";
 
 registerDebugLogger();
 installMockServiceWorkerApi(globalThis);
-if (typeof console !== "undefined") {
-  console.debug("[hytde] runtime:init:hy", { auto: false, manualInitExported: true });
-}
+console.debug("[hytde] runtime:init:hy", { auto: false, manualInitExported: true });
 registerGlobalInit(init);
 
 export { init };

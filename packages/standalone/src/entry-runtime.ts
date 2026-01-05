@@ -1,11 +1,6 @@
 import { createRuntime, initHyPathParams } from "@hytde/runtime";
 import { parseDocument, parseHtml, parseSubtree, resolveImports } from "@hytde/parser";
-import {
-  countTableMarkers,
-  ensureExtableBundle,
-  ensureExtableStylesheet,
-  ensureTableApiStub
-} from "./table-support";
+import { countTableMarkers, ensureExtableStylesheet, ensureTableApiStub } from "./table-support";
 
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
@@ -40,9 +35,7 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   }
   const scope = doc.defaultView ?? globalThis;
   ensureTableApiStub(scope);
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] runtime:parse:start", { readyState: doc.readyState });
-  }
+  console.debug("[hytde] runtime:parse:start", { readyState: doc.readyState });
 
   initHyPathParams(doc);
   const runtime = createRuntime({ parseDocument, parseSubtree });
@@ -54,14 +47,12 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   });
   const parsed = parseDocument(doc);
   const tableCount = parsed.executionMode === "disable" ? 0 : countTableMarkers(doc);
-  if (typeof console !== "undefined") {
-    console.info("[hytde] runtime:parse:complete", {
-      mode: parsed.executionMode,
-      mockRules: parsed.mockRules.length,
-      requestTargets: parsed.requestTargets.length,
-      tableMarkers: tableCount
-    });
-  }
+  console.info("[hytde] runtime:parse:complete", {
+    mode: parsed.executionMode,
+    mockRules: parsed.mockRules.length,
+    requestTargets: parsed.requestTargets.length,
+    tableMarkers: tableCount
+  });
   const parseErrors = Array.isArray(parsed.parseErrors) ? parsed.parseErrors : [];
   if (parseErrors.length > 0) {
     const hy = ensureHy(doc.defaultView ?? globalThis);
@@ -72,21 +63,16 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
       timestamp: Date.now()
     }));
     hy.errors = [...hy.errors, ...nextErrors];
-    if (typeof console !== "undefined") {
-      for (const error of parseErrors) {
-        console.error("[hytde] parse error", error.message, error.detail);
-      }
+    for (const error of parseErrors) {
+      console.error("[hytde] parse error", error.message, error.detail);
     }
   }
   if (parsed.executionMode !== "disable" && tableCount > 0) {
     ensureExtableStylesheet(doc);
-    await ensureExtableBundle(scope);
   }
   await registerMetaMockHandlers(doc, parsed);
   await startMockServiceWorkerIfNeeded(doc, parsed.executionMode);
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] runtime:data:initial", { requests: parsed.requestTargets.length });
-  }
+  console.debug("[hytde] runtime:data:initial", { requests: parsed.requestTargets.length });
   runtime.init(parsed);
   if (errors.length > 0) {
     const hy = (doc.defaultView ?? globalThis).hy;
@@ -102,10 +88,8 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
       }));
       hy.errors = [...hy.errors, ...nextErrors];
     }
-    if (typeof console !== "undefined") {
-      for (const error of errors) {
-        console.error("[hytde] import error", error);
-      }
+    for (const error of errors) {
+      console.error("[hytde] import error", error);
     }
   }
   if (importLogs.length > 0) {
@@ -131,18 +115,16 @@ async function startMockServiceWorkerIfNeeded(
   const start = mswState?.start;
   const pendingStart =
     (mswState as { pendingStart?: boolean } | undefined)?.pendingStart ?? false;
-  if (typeof console !== "undefined") {
-    console.info("[hytde] runtime:msw:start", {
-      hasState: !!mswState,
-      hasStart: typeof start === "function",
-      mode: executionMode,
-      mswStarted: mswState?.started ?? false,
-      pendingStart
-    });
-  }
+  console.info("[hytde] runtime:msw:start", {
+    hasState: !!mswState,
+    hasStart: typeof start === "function",
+    mode: executionMode,
+    mswStarted: mswState?.started ?? false,
+    pendingStart
+  });
   if (typeof start === "function") {
     await start(executionMode);
-  } else if (typeof console !== "undefined") {
+  } else {
     console.info("[hytde] runtime:msw:start:skip", { reason: "no-start" });
   }
   if (executionMode === "mock" && !mswState?.started) {
@@ -156,17 +138,13 @@ async function startMockServiceWorkerIfNeeded(
     if (Array.isArray(errorTarget.errors)) {
       errorTarget.errors = [...errorTarget.errors, error];
     }
-    if (typeof console !== "undefined") {
-      console.error("[hytde] MSW failed to start; mocks are disabled.");
-    }
+    console.error("[hytde] MSW failed to start; mocks are disabled.");
   }
 }
 
 async function registerMetaMockHandlers(doc: Document, parsed: { executionMode: string; mockRules: unknown[] }): Promise<void> {
   if (parsed.executionMode !== "mock") {
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] runtime:msw:register:skip", { reason: "mode", mode: parsed.executionMode });
-    }
+    console.debug("[hytde] runtime:msw:register:skip", { reason: "mode", mode: parsed.executionMode });
     return;
   }
   const scope = doc.defaultView ?? globalThis;
@@ -174,19 +152,15 @@ async function registerMetaMockHandlers(doc: Document, parsed: { executionMode: 
     __hytdeRegisterMswMetaHandlers?: (rules: unknown[], doc: Document) => Promise<void>;
   };
   const register = hy.__hytdeRegisterMswMetaHandlers;
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] runtime:msw:register:start", {
-      hasRegister: typeof register === "function",
-      mockCount: parsed.mockRules.length
-    });
-  }
+  console.debug("[hytde] runtime:msw:register:start", {
+    hasRegister: typeof register === "function",
+    mockCount: parsed.mockRules.length
+  });
   if (typeof register === "function") {
     await register(parsed.mockRules, doc);
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] runtime:msw:register:complete", {
-        handlerCount: parsed.mockRules.length
-      });
-    }
+    console.debug("[hytde] runtime:msw:register:complete", {
+      handlerCount: parsed.mockRules.length
+    });
   }
 }
 
@@ -211,9 +185,7 @@ function emitBufferedLogs(scope: typeof globalThis, entries: HyLogEntry[]): void
         try {
           callback(entry);
         } catch (error) {
-          if (typeof console !== "undefined") {
-            console.error("[hytde] log callback error", error);
-          }
+          console.error("[hytde] log callback error", error);
         }
       }
     }

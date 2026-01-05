@@ -122,11 +122,8 @@
               <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100 p-3">
                 <table
                   class="table w-full"
-                  hy-table-data="orders"
-                  hy-data="current.orders"
-                  hy-option="render-mode: html; lang: en"
-                  hy-edit-mode="direct"
-                  hy-bind-shortcut
+                  hy-table-data="current.orders"
+                  hy-table-option="render-mode: html; lang: en; edit-mode: direct; bind-shortcut: true"
                 >
                   <hy-get src="/api/orders" store="current"></hy-get>
                   <thead>
@@ -172,26 +169,23 @@
     </script>
     <script type="module" hy-debug>
       const tableApi = globalThis.hy.table;
-      tableApi.formula("orders", "total", (row) => row.price * row.qty);
-      tableApi.conditionalStyle("orders", "status", (row) =>
+      tableApi.formula("current.orders", "total", (row) => row.price * row.qty);
+      tableApi.conditionalStyle("current.orders", "status", (row) =>
         row.status === "overdue" ? { className: "is-overdue" } : null
       );
     </script>
     <template id="source-inline-script">
       const tableApi = globalThis.hy.table;
-      tableApi.formula("orders", "total", (row) => row.price * row.qty);
-      tableApi.conditionalStyle("orders", "status", (row) =>
+      tableApi.formula("current.orders", "total", (row) => row.price * row.qty);
+      tableApi.conditionalStyle("current.orders", "status", (row) =>
         row.status === "overdue" ? { className: "is-overdue" } : null
       );
     </template>
     <script type="text/plain" id="source-html-template">
 <table
   class="table w-full"
-  hy-table-data="orders"
-  hy-data="current.orders"
-  hy-option="render-mode: html; lang: en"
-  hy-edit-mode="direct"
-  hy-bind-shortcut
+  hy-table-data="current.orders"
+  hy-table-option="render-mode: html; lang: en; edit-mode: direct; bind-shortcut: true"
 >
   <thead>
     <tr>

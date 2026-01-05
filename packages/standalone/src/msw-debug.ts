@@ -51,56 +51,42 @@ const MSW_OPTION_KEYS = new Set([
 
 export function installMockServiceWorkerApi(scope: typeof globalThis): void {
   const hy = ensureHy(scope);
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] msw:api:init", {
+      console.debug("[hytde] msw:api:init", {
       hasMockServiceWorker: !!hy.mockServiceWorker
     });
-  }
   if (hy.mockServiceWorker) {
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:api:already-installed");
-    }
+          console.debug("[hytde] msw:api:already-installed");
     return;
   }
   const state = getMswState(scope);
   hy.mockServiceWorker = (...args: unknown[]) => {
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:api:call", summarizeMswArgs(args));
-    }
+          console.debug("[hytde] msw:api:call", summarizeMswArgs(args));
     registerMockServiceWorker(scope, state, args);
   };
   hy.__hytdeRegisterMswMetaHandlers = async (rules: MockRule[], doc: Document) => {
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:meta:register:start", {
+          console.debug("[hytde] msw:meta:register:start", {
         count: rules.length,
         doc: doc.URL
       });
-    }
     await registerMetaMockHandlers(scope, state, rules, doc);
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:meta:register:done", {
+          console.debug("[hytde] msw:meta:register:done", {
         handlers: state.metaHandlers.length
       });
-    }
   };
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] msw:api:installed");
-  }
+      console.debug("[hytde] msw:api:installed");
 }
 
 function registerMockServiceWorker(scope: typeof globalThis, state: MswState, args: unknown[]): void {
   const { handlers, options } = parseMswArgs(args);
   const newHandlers: MswHandler[] = [];
 
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] msw:register:start", {
+      console.debug("[hytde] msw:register:start", {
       handlerArgs: args.length,
       pendingStart: state.pendingStart,
       started: state.started,
       userHandlers: state.userHandlers.length,
       metaHandlers: state.metaHandlers.length
     });
-  }
 
   for (const handler of handlers) {
     if (!isHandlerLike(handler)) {
@@ -120,47 +106,37 @@ function registerMockServiceWorker(scope: typeof globalThis, state: MswState, ar
   }
 
   if (newHandlers.length === 0 && !options) {
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:handlers:none");
-    }
+          console.debug("[hytde] msw:handlers:none");
     return;
   }
 
   state.userHandlers.push(...newHandlers);
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] msw:handlers:register", {
+      console.debug("[hytde] msw:handlers:register", {
       added: newHandlers.length,
       totalUser: state.userHandlers.length,
       totalMeta: state.metaHandlers.length
     });
-  }
   if (options && !state.started) {
     state.startOptions = options;
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:start:options", sanitizeOptions(options));
-    }
+          console.debug("[hytde] msw:start:options", sanitizeOptions(options));
   }
 
   if (state.started && state.worker && newHandlers.length > 0) {
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:use:runtime", {
+          console.debug("[hytde] msw:use:runtime", {
         added: newHandlers.length,
         totalUser: state.userHandlers.length,
         totalMeta: state.metaHandlers.length
       });
-    }
     state.worker.use(...newHandlers);
     logMsw(scope, "msw:reuse", { handlers: newHandlers.length });
     return;
   }
 
   state.pendingStart = true;
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] msw:queue", {
+      console.debug("[hytde] msw:queue", {
       userHandlers: state.userHandlers.length,
       metaHandlers: state.metaHandlers.length
     });
-  }
 }
 
 function parseMswArgs(args: unknown[]): {
@@ -210,9 +186,7 @@ function isHandlerLike(handler: unknown): boolean {
 function getMswState(scope: typeof globalThis): MswState {
   const hy = ensureHy(scope);
   if (hy[MSW_STATE_KEY]) {
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:state:reuse");
-    }
+          console.debug("[hytde] msw:state:reuse");
     return hy[MSW_STATE_KEY] as MswState;
   }
   const state: MswState = {
@@ -228,28 +202,22 @@ function getMswState(scope: typeof globalThis): MswState {
     pendingStart: false,
     loggingAttached: false,
     start: async (mode) => {
-      if (typeof console !== "undefined") {
-        console.debug("[hytde] msw:start:check", {
+              console.debug("[hytde] msw:start:check", {
           pendingStart: state.pendingStart,
           started: state.started,
           mode,
           userHandlers: state.userHandlers.length,
           metaHandlers: state.metaHandlers.length
         });
-      }
       if (!state.pendingStart && !state.started) {
-        if (typeof console !== "undefined") {
-          console.debug("[hytde] msw:start:skip:idle");
-        }
+                  console.debug("[hytde] msw:start:skip:idle");
         return;
       }
-      if (typeof console !== "undefined") {
-        console.debug("[hytde] msw:start:begin", {
+              console.debug("[hytde] msw:start:begin", {
           mode,
           userHandlers: state.userHandlers.length,
           metaHandlers: state.metaHandlers.length
         });
-      }
       if (mode !== "mock") {
         logMsw(scope, "msw:skip", { reason: "mode", mode });
         state.pendingStart = false;
@@ -275,9 +243,7 @@ function getMswState(scope: typeof globalThis): MswState {
       if (!state.started && state.worker) {
         try {
           const startOptions = state.startOptions ?? { onUnhandledRequest: "bypass" };
-          if (typeof console !== "undefined") {
-            console.debug("[hytde] msw:start:options:effective", sanitizeOptions(startOptions));
-          }
+                      console.debug("[hytde] msw:start:options:effective", sanitizeOptions(startOptions));
           await state.worker.start(startOptions);
           state.started = true;
           logMsw(scope, "msw:start", { handlers: state.userHandlers.length + state.metaHandlers.length });
@@ -324,9 +290,7 @@ async function registerMetaMockHandlers(
   }
   if (errors.length > 0) {
     for (const error of errors) {
-      if (typeof console !== "undefined") {
-        console.error("[hytde] mock fixture preload failed", error.message, error.url);
-      }
+              console.error("[hytde] mock fixture preload failed", error.message, error.url);
       pushHyError(scope, "Mock fixture preload failed.", { url: error.url, error: error.message });
     }
   }
@@ -352,25 +316,21 @@ function buildMetaHandlerFromPayload(rule: MockRule, fixtureUrl: string, payload
   }
   return handler(path, async (info) => {
     const request = (info as { request?: Request }).request;
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:meta:request", {
+          console.debug("[hytde] msw:meta:request", {
         method,
         url: request?.url ?? "",
         fixtureUrl
       });
-    }
     const delayMs = rule.delayMs ?? { min: 100, max: 500 };
     const waitMs = delayMs.min + Math.random() * (delayMs.max - delayMs.min);
     await new Promise((resolve) => setTimeout(resolve, waitMs));
 
     const status = rule.status ?? 200;
     const body = clonePayload(payload);
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:meta:response", {
+          console.debug("[hytde] msw:meta:response", {
         status,
         summary: summarizePayload(body)
       });
-    }
     return HttpResponse.json(body, { status });
   });
 }
@@ -378,21 +338,17 @@ function buildMetaHandlerFromPayload(rule: MockRule, fixtureUrl: string, payload
 async function preloadFixture(
   fixtureUrl: string
 ): Promise<{ payload: JsonBodyType; error?: string }> {
-  if (typeof console !== "undefined") {
-    console.debug("[hytde] msw:meta:preload", { fixtureUrl });
-  }
+      console.debug("[hytde] msw:meta:preload", { fixtureUrl });
   try {
     const response = await fetch(fixtureUrl, { method: "GET" });
     if (!response.ok) {
       return { payload: null, error: `HTTP ${response.status}` };
     }
     const payload = (await safeJson(response)) as JsonBodyType;
-    if (typeof console !== "undefined") {
-      console.debug("[hytde] msw:meta:preload:done", {
+          console.debug("[hytde] msw:meta:preload:done", {
         fixtureUrl,
         summary: summarizePayload(payload)
       });
-    }
     return { payload };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -468,7 +424,7 @@ function attachMswRequestLogs(worker: ReturnType<typeof setupWorker>, state: Msw
   state.loggingAttached = true;
   worker.events.on("request:match", (event: unknown) => {
     const request = (event as { request?: Request }).request;
-    if (request && typeof console !== "undefined" && !isFixtureRequest(request.url, state)) {
+    if (request && !isFixtureRequest(request.url, state)) {
       console.debug("request:match", {
         method: request.method,
         url: request.url,
@@ -543,9 +499,7 @@ function logMsw(scope: typeof globalThis, message: string, detail?: Record<strin
       try {
         callback(entry);
       } catch (error) {
-        if (typeof console !== "undefined") {
-          console.error("[hytde] log callback error", error);
-        }
+                  console.error("[hytde] log callback error", error);
       }
     }
     return;

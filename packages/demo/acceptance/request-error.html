@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="production" />
+    <title>Acceptance - Request Error</title>
+  </head>
+  <body>
+    <section>
+      <hy-get src="/api/does-not-exist" store="current"></hy-get>
+      <p data-testid="status" hy="current.user.name">Missing</p>
+    </section>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/orders path=/mocks/table-orders.json" />
+    <title>Acceptance - Table</title>
+  </head>
+  <body>
+    <table
+      hy-table-data="current.orders"
+      hy-table-option="render-mode: html; lang: en; edit-mode: direct; bind-shortcut: true"
+    >
+      <hy-get src="/api/orders" store="current"></hy-get>
+      <thead>
+        <tr>
+          <th hy-column="key: id; type: number">ID</th>
+          <th hy-column="key: customer; type: string">Customer</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr hy-dummy>
+          <td colspan="2">Loading</td>
+        </tr>
+      </tbody>
+    </table>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
+  </body>
+</html>
