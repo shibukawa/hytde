@@ -250,6 +250,9 @@
         </article>
       </section>
     </main>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
     <script type="module" hy-debug>
       import { http, HttpResponse } from "msw";
       import "@hytde/standalone/debug-api";
@@ -273,7 +276,8 @@
         return baseSuggestions.filter((item) => item.name.toLowerCase().startsWith(needle));
       };
 
-      globalThis.hy?.mockServiceWorker?.(
+      const hy = globalThis.hy;
+      hy.mockServiceWorker(
         http.get("/api/users/lookup/", () => HttpResponse.json({ items: [] })),
         http.get("/api/users/lookup/:query", ({ params }) => {
           const query = String(params.query ?? "");
@@ -281,11 +285,6 @@
         })
       );
       // end-script
-    </script>
-    <script type="module">
-      import { init } from "@hytde/standalone";
-
-      init();
     </script>
     <template id="source-inline-script">
       // start-script
@@ -317,8 +316,6 @@
           return HttpResponse.json({ items: filterSuggestions(query) });
         })
       );
-      // init script
-      init();
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
@@ -440,10 +437,7 @@
     </script>
     <script type="text/plain" id="source-json-template" data-source="mock"></script>
     <template id="source-cdn-template">
-      &lt;script src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.global.js"&gt;&lt;/script&gt;
-      &lt;script&gt;
-        hytde.init();
-      &lt;/script&gt;
+      &lt;script src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.global.js"&gt;&lt;/script&gt;
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

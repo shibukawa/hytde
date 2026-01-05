@@ -1,0 +1,8 @@
+{
+  "orders": [
+    { "id": 1001, "customer": "Sparrow Labs", "price": 780, "qty": 3, "status": "paid" },
+    { "id": 1002, "customer": "Evergreen Co.", "price": 1450, "qty": 1, "status": "overdue" },
+    { "id": 1003, "customer": "Northwind", "price": 620, "qty": 4, "status": "pending" },
+    { "id": 1004, "customer": "Globex", "price": 280, "qty": 6, "status": "paid" }
+  ]
+}

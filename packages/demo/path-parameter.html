@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="hy-mode" content="mock" />
-    <meta name="hy-mock" content="pattern=/api/users path=/mocks/user-search.json" />
+    <meta name="hy-mock" content="pattern=/api/users path=/mocks/path-parameter-users.json" />
     <title>⭐️HyTDE Path Parameters</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -164,10 +164,10 @@
       </section>
     </main>
     <script type="module">
-      import { init } from "@hytde/standalone";
+      import "@hytde/standalone/debug";
       // start-script
+      // auto init in debug build
       // end-script
-      init();
     </script>
     <template id="source-inline-script">
       // start-script
@@ -208,7 +208,7 @@
     </script>
     <script type="text/plain" id="source-json-template"></script>
     <template id="source-cdn-template">
-      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.js"&gt;&lt;/script&gt;
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

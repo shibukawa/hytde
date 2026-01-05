@@ -193,6 +193,9 @@
         </article>
       </section>
     </main>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
     <script type="module" hy-debug>
       import { http, HttpResponse } from "msw";
       import "@hytde/standalone/debug-api";
@@ -249,32 +252,19 @@
           return HttpResponse.json(items[key] ?? []);
         })
       );
-      // end-script
-    </script>
-    <script type="module">
-      import { init } from "@hytde/standalone";
-
-      const attachStoreLog = () => {
-        const hy = globalThis.hy;
-        if (hy?.onLog) {
-          hy.onLog((entry) => {
-            if (
-              entry.type === "request" &&
-              typeof entry.detail?.url === "string" &&
-              entry.detail.url.includes("/api/categories")
-            ) {
-              console.debug("[hytde] demo:aOptions", {
-                value: globalThis.hyState?.aOptions ?? null
-              });
-            }
+      const hy = globalThis.hy;
+      hy.onLog((entry) => {
+        if (
+          entry.type === "request" &&
+          typeof entry.detail?.url === "string" &&
+          entry.detail.url.includes("/api/categories")
+        ) {
+          console.debug("[hytde] demo:aOptions", {
+            value: globalThis.hyState?.aOptions ?? null
           });
-          return;
         }
-        setTimeout(attachStoreLog, 0);
-      };
-      attachStoreLog();
-
-      init();
+      });
+      // end-script
     </script>
     <template id="source-inline-script">
       // start-script
@@ -332,27 +322,18 @@
           return HttpResponse.json(items[key] ?? []);
         })
       );
-      // init script
-      const attachStoreLog = () => {
-        const hy = globalThis.hy;
-        if (hy?.onLog) {
-          hy.onLog((entry) => {
-            if (
-              entry.type === "request" &&
-              typeof entry.detail?.url === "string" &&
-              entry.detail.url.includes("/api/categories")
-            ) {
-              console.debug("[hytde] demo:aOptions", {
-                value: globalThis.hyState?.aOptions ?? null
-              });
-            }
+      const hy = globalThis.hy;
+      hy.onLog((entry) => {
+        if (
+          entry.type === "request" &&
+          typeof entry.detail?.url === "string" &&
+          entry.detail.url.includes("/api/categories")
+        ) {
+          console.debug("[hytde] demo:aOptions", {
+            value: globalThis.hyState?.aOptions ?? null
           });
-          return;
         }
-        setTimeout(attachStoreLog, 0);
-      };
-      attachStoreLog();
-      init();
+      });
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
@@ -446,7 +427,7 @@
 }
     </script>
     <template id="source-cdn-template">
-<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.js"></script>
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

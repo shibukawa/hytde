@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="hy-mode" content="production" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/orders path=/mocks/table-orders.json method=GET" />
     <title>HyTDE Table Demo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -127,6 +128,7 @@
                   hy-edit-mode="direct"
                   hy-bind-shortcut
                 >
+                  <hy-get src="/api/orders" store="current"></hy-get>
                   <thead>
                     <tr>
                       <th hy-column="key: id; type: number" style="width: 80px">ID</th>
@@ -138,29 +140,11 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td>501</td>
-                      <td>Acme Works</td>
-                      <td>1200</td>
-                      <td>2</td>
-                      <td>2400</td>
-                      <td>paid</td>
-                    </tr>
-                    <tr>
-                      <td>502</td>
-                      <td>Northwind</td>
-                      <td>840</td>
-                      <td>1</td>
-                      <td>840</td>
-                      <td>overdue</td>
-                    </tr>
-                    <tr>
-                      <td>503</td>
-                      <td>Globex</td>
-                      <td>320</td>
-                      <td>5</td>
-                      <td>1600</td>
-                      <td>pending</td>
+                    <tr hy-dummy>
+                      <td colspan="6">
+                        <div class="text-sm font-semibold">Loading orders...</div>
+                        <div class="text-xs opacity-60">Dummy placeholder will disappear after init.</div>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -184,48 +168,21 @@
     </main>
 
     <script type="module">
-      import { init } from "@hytde/standalone";
-
-      globalThis.hyState = {
-        current: {
-          orders: [
-            { id: 501, customer: "Acme Works", price: 1200, qty: 2, status: "paid" },
-            { id: 502, customer: "Northwind", price: 840, qty: 1, status: "overdue" },
-            { id: 503, customer: "Globex", price: 320, qty: 5, status: "pending" }
-          ]
-        }
-      };
-
-      if (globalThis.hy?.table) {
-        globalThis.hy.table.formula("orders", "total", (row) => row.price * row.qty);
-        globalThis.hy.table.conditionalStyle("orders", "status", (row) => {
-          return row.status === "overdue" ? { className: "is-overdue" } : null;
-        });
-      }
-
-      init().then(() => {
-        if (globalThis.ExtableCore) {
-          console.debug("[demo] ExtableCore loaded (runtime wiring, no plugin).");
-        }
-      });
+      import "@hytde/standalone/debug";
+    </script>
+    <script type="module" hy-debug>
+      const tableApi = globalThis.hy.table;
+      tableApi.formula("orders", "total", (row) => row.price * row.qty);
+      tableApi.conditionalStyle("orders", "status", (row) =>
+        row.status === "overdue" ? { className: "is-overdue" } : null
+      );
     </script>
     <template id="source-inline-script">
-      globalThis.hyState = {
-        current: {
-          orders: [
-            { id: 501, customer: "Acme Works", price: 1200, qty: 2, status: "paid" },
-            { id: 502, customer: "Northwind", price: 840, qty: 1, status: "overdue" },
-            { id: 503, customer: "Globex", price: 320, qty: 5, status: "pending" }
-          ]
-        }
-      };
-
-      if (globalThis.hy?.table) {
-        globalThis.hy.table.formula("orders", "total", (row) => row.price * row.qty);
-        globalThis.hy.table.conditionalStyle("orders", "status", (row) => {
-          return row.status === "overdue" ? { className: "is-overdue" } : null;
-        });
-      }
+      const tableApi = globalThis.hy.table;
+      tableApi.formula("orders", "total", (row) => row.price * row.qty);
+      tableApi.conditionalStyle("orders", "status", (row) =>
+        row.status === "overdue" ? { className: "is-overdue" } : null
+      );
     </template>
     <script type="text/plain" id="source-html-template">
 <table
@@ -247,29 +204,11 @@
     </tr>
   </thead>
   <tbody>
-    <tr>
-      <td>501</td>
-      <td>Acme Works</td>
-      <td>1200</td>
-      <td>2</td>
-      <td>2400</td>
-      <td>paid</td>
-    </tr>
-    <tr>
-      <td>502</td>
-      <td>Northwind</td>
-      <td>840</td>
-      <td>1</td>
-      <td>840</td>
-      <td>overdue</td>
-    </tr>
-    <tr>
-      <td>503</td>
-      <td>Globex</td>
-      <td>320</td>
-      <td>5</td>
-      <td>1600</td>
-      <td>pending</td>
+    <tr hy-dummy>
+      <td colspan="6">
+        <div class="text-sm font-semibold">Loading orders...</div>
+        <div class="text-xs opacity-60">Dummy placeholder will disappear after init.</div>
+      </td>
     </tr>
   </tbody>
 </table>
@@ -286,7 +225,7 @@
 }
     </script>
     <template id="source-cdn-template">
-      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.js"&gt;&lt;/script&gt;
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

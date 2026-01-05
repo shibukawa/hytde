@@ -293,6 +293,9 @@
         </article>
       </section>
     </main>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
     <script type="module" hy-debug>
       import { http, HttpResponse } from "msw";
       import "@hytde/standalone/debug-api";
@@ -387,15 +390,100 @@
         })
       );
     </script>
-    <script type="module">
-      import { init } from "@hytde/standalone";
-      // start-script
-      init();
-      // end-script
-    </script>
     <template id="source-inline-script">
       // start-script
-      init();
+      import { http, HttpResponse } from "msw";
+      import "@hytde/standalone/debug-api";
+
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      const normalizeToken = (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const buildS3Path = (uploadUuid, inputName, fileName = "file.bin") =>
+        `/s3/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
+      const buildSimplePath = (uploadUuid, inputName, fileName = "file.bin") =>
+        `/simple/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
+
+      globalThis.hy.mockServiceWorker(
+        http.post("/api/uploads/s3/init", async ({ request }) => {
+          const body = await request.json().catch(() => ({}));
+          const uploadId = crypto.randomUUID();
+          const files =
+            Array.isArray(body?.files) && body.files.length > 0
+              ? body.files
+              : [{ inputName: "file", chunks: 1, fileName: "file.bin" }];
+          const uploads = files.map((file) => {
+            const inputName = String(file?.inputName ?? "file");
+            const chunks = Number(file?.chunks ?? 1);
+            const fileName = String(file?.fileName ?? "file.bin");
+            return {
+              inputName,
+              uploadId,
+              s3Path: buildS3Path(uploadId, inputName, fileName),
+              parts: Array.from({ length: Math.max(1, chunks) }, (_, index) => ({
+                partNumber: index + 1,
+                url: `/api/uploads/s3/part/${uploadId}/${encodeURIComponent(inputName)}/${index + 1}`
+              }))
+            };
+          });
+          await sleep(150);
+          return HttpResponse.json({ uploads });
+        }),
+        http.put("/api/uploads/s3/part/:uploadUuid/:inputName/:part", async ({ params }) => {
+          await sleep(1000);
+          return new HttpResponse(null, {
+            status: 200,
+            headers: {
+              ETag: `etag-${params.part}`
+            }
+          });
+        }),
+        http.post("/api/uploads/s3/complete", async ({ request }) => {
+          const body = await request.json();
+          const uploads = Array.isArray(body?.uploads) ? body.uploads : [];
+          const files = uploads.map((upload, index) => {
+            const inputName = String(upload?.inputName ?? "file");
+            const s3Path =
+              (typeof upload?.path === "string" && upload.path.length > 0
+                ? upload.path
+                : typeof upload?.s3Path === "string" && upload.s3Path.length > 0
+                  ? upload.s3Path
+                  : buildS3Path(crypto.randomUUID(), inputName, `file-${index + 1}`)) ?? "";
+            return {
+              inputName,
+              fileId: s3Path,
+              s3Path,
+              etags: Array.isArray(upload?.parts)
+                ? upload.parts
+                    .map((part) => part?.ETag ?? part?.etag ?? null)
+                    .filter((etag) => typeof etag === "string" && etag.length > 0)
+                : []
+            };
+          });
+          await sleep(200);
+          return HttpResponse.json({ files });
+        }),
+        http.post("/api/uploads/simple", async ({ request }) => {
+          const formData = await request.formData();
+          const inputName = String(formData.get("inputName") ?? "file");
+          const fileName = String(formData.get("fileName") ?? "file.bin");
+          const path = buildSimplePath(crypto.randomUUID(), inputName, fileName);
+          await sleep(150);
+          return HttpResponse.json({ inputName, path });
+        }),
+        http.post("/api/uploads/submit/:mode", async ({ request, params }) => {
+          let payload;
+          const contentType = request.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            payload = await request.json();
+          } else if (contentType.includes("multipart/form-data")) {
+            const formData = await request.formData();
+            payload = Object.fromEntries(formData.entries());
+          } else {
+            payload = { raw: await request.text() };
+          }
+          return HttpResponse.json(payload ?? { mode: params.mode });
+        })
+      );
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
@@ -559,7 +647,7 @@
     </script>
     <script type="text/plain" id="source-json-template" data-source="mock"></script>
     <template id="source-cdn-template">
-<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.js"></script>
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

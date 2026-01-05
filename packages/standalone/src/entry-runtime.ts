@@ -1,5 +1,11 @@
 import { createRuntime, initHyPathParams } from "@hytde/runtime";
 import { parseDocument, parseHtml, parseSubtree, resolveImports } from "@hytde/parser";
+import {
+  countTableMarkers,
+  ensureExtableBundle,
+  ensureExtableStylesheet,
+  ensureTableApiStub
+} from "./table-support";
 
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
@@ -32,8 +38,10 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   if (!doc) {
     return;
   }
+  const scope = doc.defaultView ?? globalThis;
+  ensureTableApiStub(scope);
   if (typeof console !== "undefined") {
-    console.debug("[hytde] runtime:init", { url: doc.URL });
+    console.debug("[hytde] runtime:parse:start", { readyState: doc.readyState });
   }
 
   initHyPathParams(doc);
@@ -45,11 +53,13 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     }
   });
   const parsed = parseDocument(doc);
+  const tableCount = parsed.executionMode === "disable" ? 0 : countTableMarkers(doc);
   if (typeof console !== "undefined") {
-    console.debug("[hytde] runtime:parsed", {
+    console.info("[hytde] runtime:parse:complete", {
       mode: parsed.executionMode,
       mockRules: parsed.mockRules.length,
-      requestTargets: parsed.requestTargets.length
+      requestTargets: parsed.requestTargets.length,
+      tableMarkers: tableCount
     });
   }
   const parseErrors = Array.isArray(parsed.parseErrors) ? parsed.parseErrors : [];
@@ -68,8 +78,15 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
       }
     }
   }
+  if (parsed.executionMode !== "disable" && tableCount > 0) {
+    ensureExtableStylesheet(doc);
+    await ensureExtableBundle(scope);
+  }
   await registerMetaMockHandlers(doc, parsed);
   await startMockServiceWorkerIfNeeded(doc, parsed.executionMode);
+  if (typeof console !== "undefined") {
+    console.debug("[hytde] runtime:data:initial", { requests: parsed.requestTargets.length });
+  }
   runtime.init(parsed);
   if (errors.length > 0) {
     const hy = (doc.defaultView ?? globalThis).hy;
@@ -112,8 +129,21 @@ async function startMockServiceWorkerIfNeeded(
   const hy = ensureHy(scope) as HyLogState;
   const mswState = hy[MSW_STATE_KEY];
   const start = mswState?.start;
+  const pendingStart =
+    (mswState as { pendingStart?: boolean } | undefined)?.pendingStart ?? false;
+  if (typeof console !== "undefined") {
+    console.info("[hytde] runtime:msw:start", {
+      hasState: !!mswState,
+      hasStart: typeof start === "function",
+      mode: executionMode,
+      mswStarted: mswState?.started ?? false,
+      pendingStart
+    });
+  }
   if (typeof start === "function") {
     await start(executionMode);
+  } else if (typeof console !== "undefined") {
+    console.info("[hytde] runtime:msw:start:skip", { reason: "no-start" });
   }
   if (executionMode === "mock" && !mswState?.started) {
     const error = {
@@ -134,6 +164,9 @@ async function startMockServiceWorkerIfNeeded(
 
 async function registerMetaMockHandlers(doc: Document, parsed: { executionMode: string; mockRules: unknown[] }): Promise<void> {
   if (parsed.executionMode !== "mock") {
+    if (typeof console !== "undefined") {
+      console.debug("[hytde] runtime:msw:register:skip", { reason: "mode", mode: parsed.executionMode });
+    }
     return;
   }
   const scope = doc.defaultView ?? globalThis;
@@ -141,8 +174,19 @@ async function registerMetaMockHandlers(doc: Document, parsed: { executionMode: 
     __hytdeRegisterMswMetaHandlers?: (rules: unknown[], doc: Document) => Promise<void>;
   };
   const register = hy.__hytdeRegisterMswMetaHandlers;
+  if (typeof console !== "undefined") {
+    console.debug("[hytde] runtime:msw:register:start", {
+      hasRegister: typeof register === "function",
+      mockCount: parsed.mockRules.length
+    });
+  }
   if (typeof register === "function") {
     await register(parsed.mockRules, doc);
+    if (typeof console !== "undefined") {
+      console.debug("[hytde] runtime:msw:register:complete", {
+        handlerCount: parsed.mockRules.length
+      });
+    }
   }
 }
 
@@ -186,4 +230,9 @@ function ensureHy(scope: typeof globalThis): HyLogState & { loading: boolean; er
     scope.hy = { loading: false, errors: [] };
   }
   return scope.hy as HyLogState & { loading: boolean; errors: unknown[] };
+}
+
+const globalScope = typeof globalThis !== "undefined" ? globalThis : undefined;
+if (globalScope) {
+  ensureTableApiStub(globalScope);
 }

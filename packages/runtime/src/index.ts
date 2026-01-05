@@ -77,6 +77,8 @@ export interface HyGlobals {
   loading: boolean;
   errors: HyError[];
   uploading?: AsyncUploadEntry[];
+  mockStreamDelayMs?: number;
+  mockSseDelayMs?: number;
   onRenderComplete?: (callback: () => void) => void;
   onLog?: (callback: (entry: HyLogEntry) => void) => void;
   onError?: (errors: HyError[]) => void;
@@ -140,14 +142,6 @@ declare global {
   var hy: HyGlobals | undefined;
   // eslint-disable-next-line no-var
   var hyParams: Record<string, string> | undefined;
-}
-
-interface MockRule {
-  pattern: RegExp;
-  path: string;
-  method: string;
-  status?: number;
-  delayMs?: { min: number; max: number };
 }
 
 export interface ParsedForTemplate {
@@ -228,7 +222,7 @@ export interface ParsedSubtree {
 export interface ParsedDocument extends ParsedSubtree {
   doc: Document;
   executionMode: "production" | "mock" | "disable";
-  mockRules: MockRule[];
+  mockRules: unknown[];
   parseErrors: Array<{ message: string; detail?: Record<string, unknown> }>;
   requestTargets: ParsedRequestTarget[];
   handlesErrors: boolean;
@@ -243,8 +237,6 @@ export interface ParserAdapter {
 interface RuntimeState {
   doc: Document;
   globals: RuntimeGlobals;
-  mockRules: MockRule[];
-  useMswMock: boolean;
   parsed: ParsedDocument;
   parser: ParserAdapter;
   cascade: CascadeState;
@@ -261,7 +253,6 @@ interface RuntimeState {
   streamKeyCache: Map<string, Set<string>>;
   sseSources: Map<ParsedRequestTarget, EventSource>;
   pollingTimers: Map<ParsedRequestTarget, number>;
-  pollingMockQueues: Map<ParsedRequestTarget, { items: unknown[]; index: number }>;
   streamStores: string[];
   requestCache: Map<string, { promise: Promise<void>; payload: unknown; payloadSet: boolean }>;
   requestCounter: number;
@@ -455,7 +446,6 @@ interface FormStateContext {
 
 const TRANSFORM_TYPES: JsonScalarType[] = ["string", "number", "boolean", "null"];
 const DEFAULT_AUTOSAVE_DELAY_MS = 500;
-const MSW_STATE_KEY = "__hytdeMswState";
 const MOCK_DISABLED_KEY = "__hytdeMockDisabled";
 
 const globalScope = typeof globalThis !== "undefined" ? globalThis : undefined;
@@ -483,7 +473,6 @@ export function createRuntime(parser: ParserAdapter): Runtime {
 
       const state = getRuntimeState(doc, globals, parsed, parser);
       void isMockDisabled;
-      state.mockRules = [];
       setupPlugins(state);
       syncHyPathParams(state);
       emitPathDiagnostics(state);
@@ -611,13 +600,11 @@ function getRuntimeState(
   parser: ParserAdapter
 ): RuntimeState {
   const existing = runtimeStates.get(doc);
-  const useMswMock = detectMswMock(globals);
   if (existing) {
     existing.globals = globals;
     existing.parsed = parsed;
     existing.parser = parser;
     existing.cascade = buildCascadeState(existing, parsed);
-    existing.useMswMock = useMswMock;
     existing.asyncUploads = new Map();
     existing.asyncUploadEntries = new Map();
     return existing;
@@ -633,8 +620,6 @@ function getRuntimeState(
   const state: RuntimeState = {
     doc,
     globals,
-    mockRules: [],
-    useMswMock,
     parsed,
     parser,
     cascade: {
@@ -659,7 +644,6 @@ function getRuntimeState(
     streamKeyCache: new Map(),
     sseSources: new Map(),
     pollingTimers: new Map(),
-    pollingMockQueues: new Map(),
     streamStores,
     requestCache: new Map(),
     requestCounter: 0,
@@ -697,12 +681,6 @@ function getRuntimeState(
   state.cascade = buildCascadeState(state, parsed);
   runtimeStates.set(doc, state);
   return state;
-}
-
-function detectMswMock(globals: RuntimeGlobals): boolean {
-  const hy = globals.hy as HyGlobals & Record<string, unknown>;
-  const state = hy ? (hy[MSW_STATE_KEY] as { started?: boolean } | undefined) : undefined;
-  return Boolean(state && state.started);
 }
 
 function isMockDisabled(globals: RuntimeGlobals): boolean {
@@ -955,7 +933,6 @@ function disposePlugins(state: RuntimeState): void {
     window.clearInterval(timer);
   }
   state.pollingTimers.clear();
-  state.pollingMockQueues.clear();
 }
 
 const tablePlugin: HytdePlugin = {
@@ -5680,30 +5657,12 @@ async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState
     context: "request"
   });
   const gate = createStreamGate(target);
-  const mockRule = matchMockRule(resolvedUrl.value, "GET", state.mockRules);
-  if (mockRule) {
-    logMockMatch(state, "GET", resolvedUrl.value);
-    emitLog(state, {
-      type: "request",
-      message: "sse:mock",
-      detail: { url: resolvedUrl.value, method: "GET", path: mockRule.path },
-      timestamp: Date.now()
-    });
-    if (typeof console !== "undefined") {
-      console.info("[hytde] sse mock", resolvedUrl.value, mockRule.path);
-    }
-    const payload = await fetchMockPayload(mockRule);
-    void emitMockSse(payload, target, state, gate, mockRule).catch((error) => {
-      recordError(state, error, resolvedUrl.value, "GET");
-      gate.resolve();
-    });
-    await gate.promise;
-    return;
-  }
-  logMockUnhandled(state, "GET", resolvedUrl.value);
 
   const eventSource = new EventSource(resolvedUrl.value);
   state.sseSources.set(target, eventSource);
+  const sseDelayMs = resolveMockStreamDelay(state, "sse");
+  let sseDelayOffset = 0;
+  let sseReceived = false;
   emitLog(state, {
     type: "request",
     message: "sse:start",
@@ -5712,23 +5671,56 @@ async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState
   });
 
   eventSource.addEventListener("message", (event) => {
-    try {
-      const data = JSON.parse((event as MessageEvent).data);
-      const appended = appendStreamPayload(target, data, state);
-      if (appended) {
-        gate.increment();
-      }
-      if (target.store) {
-        if (!state.bootstrapPending) {
-          renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+    sseReceived = true;
+    const raw = (event as MessageEvent).data;
+    const delay = sseDelayMs > 0 ? sseDelayOffset : 0;
+    emitLog(state, {
+      type: "request",
+      message: "sse:receive",
+      detail: { url: resolvedUrl.value, store: target.store ?? null, delayMs: delay },
+      timestamp: Date.now()
+    });
+    const handleMessage = () => {
+      try {
+        const data = JSON.parse(raw);
+        emitLog(state, {
+          type: "request",
+          message: "sse:apply",
+          detail: { url: resolvedUrl.value, store: target.store ?? null },
+          timestamp: Date.now()
+        });
+        const appended = appendStreamPayload(target, data, state);
+        if (appended) {
+          gate.increment();
         }
+        if (target.store) {
+          if (!state.bootstrapPending) {
+            renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
+          }
+        }
+      } catch (error) {
+        recordStreamError(state, "SSE message parse error", resolvedUrl.value, "GET");
       }
-    } catch (error) {
-      recordStreamError(state, "SSE message parse error", resolvedUrl.value, "GET");
+    };
+    if (sseDelayMs > 0) {
+      sseDelayOffset += sseDelayMs;
+      window.setTimeout(handleMessage, delay);
+      return;
     }
+    handleMessage();
   });
 
   eventSource.addEventListener("error", () => {
+    if (eventSource.readyState === EventSource.CLOSED || sseReceived) {
+      emitLog(state, {
+        type: "info",
+        message: "sse:close",
+        detail: { url: resolvedUrl.value, method: "GET" },
+        timestamp: Date.now()
+      });
+      gate.resolve();
+      return;
+    }
     recordStreamError(state, "SSE connection error", resolvedUrl.value, "GET");
     gate.resolve();
   });
@@ -5770,31 +5762,35 @@ async function consumeStream(
   state: RuntimeState,
   gate: StreamGate
 ): Promise<void> {
-  const mockRule = matchMockRule(url, init.method ?? "GET", state.mockRules);
-  if (mockRule) {
-    logMockMatch(state, init.method ?? "GET", url);
-    emitLog(state, {
-      type: "request",
-      message: "stream:mock",
-      detail: { url, method: init.method ?? "GET", path: mockRule.path },
-      timestamp: Date.now()
-    });
-    if (typeof console !== "undefined") {
-      console.info("[hytde] stream mock", url, mockRule.path);
-    }
-    const payload = await fetchMockPayload(mockRule);
-    await emitMockStream(payload, target, state, gate, mockRule);
-    return;
-  }
-  logMockUnhandled(state, init.method ?? "GET", url);
-
   const response = await fetch(url, init);
+  emitLog(state, {
+    type: "request",
+    message: "stream:response",
+    detail: { url, status: response.status, ok: response.ok, hasBody: Boolean(response.body) },
+    timestamp: Date.now()
+  });
   if (!response.ok) {
     throw new Error(`Stream request failed: ${response.status}`);
   }
+  const streamDelayMs = resolveMockStreamDelay(state, "stream");
 
   if (!response.body) {
     const payload = await safeJson(response);
+    emitLog(state, {
+      type: "request",
+      message: "stream:receive",
+      detail: { url, store: target.store ?? null, delayMs: streamDelayMs },
+      timestamp: Date.now()
+    });
+    if (streamDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, streamDelayMs));
+    }
+    emitLog(state, {
+      type: "request",
+      message: "stream:apply",
+      detail: { url, store: target.store ?? null },
+      timestamp: Date.now()
+    });
     appendStreamPayload(target, payload, state);
     gate.increment();
     return;
@@ -5806,6 +5802,12 @@ async function consumeStream(
 
   while (true) {
     const { done, value } = await reader.read();
+    emitLog(state, {
+      type: "request",
+      message: "stream:chunk",
+      detail: { url, done, bytes: value ? value.byteLength : 0 },
+      timestamp: Date.now()
+    });
     if (done) {
       break;
     }
@@ -5813,6 +5815,21 @@ async function consumeStream(
     const parsed = parseJsonLines(buffer);
     buffer = parsed.rest;
     for (const item of parsed.items) {
+      emitLog(state, {
+        type: "request",
+        message: "stream:receive",
+        detail: { url, store: target.store ?? null, delayMs: streamDelayMs },
+        timestamp: Date.now()
+      });
+      if (streamDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, streamDelayMs));
+      }
+      emitLog(state, {
+        type: "request",
+        message: "stream:apply",
+        detail: { url, store: target.store ?? null },
+        timestamp: Date.now()
+      });
       const appended = appendStreamPayload(target, item, state);
       if (appended) {
         gate.increment();
@@ -5830,6 +5847,21 @@ async function consumeStream(
   if (remaining) {
     try {
       const item = JSON.parse(remaining);
+      emitLog(state, {
+        type: "request",
+        message: "stream:receive",
+        detail: { url, store: target.store ?? null, delayMs: streamDelayMs },
+        timestamp: Date.now()
+      });
+      if (streamDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, streamDelayMs));
+      }
+      emitLog(state, {
+        type: "request",
+        message: "stream:apply",
+        detail: { url, store: target.store ?? null },
+        timestamp: Date.now()
+      });
       const appended = appendStreamPayload(target, item, state);
       if (appended) {
         gate.increment();
@@ -5842,74 +5874,6 @@ async function consumeStream(
     }
   }
 
-  gate.resolve();
-}
-
-async function fetchMockPayload(rule: MockRule): Promise<unknown> {
-  const response = await fetch(rule.path, { method: "GET" });
-  if (!response.ok) {
-    throw new Error(`Mock fetch failed: ${response.status}`);
-  }
-  return safeJson(response);
-}
-
-async function emitMockStream(
-  payload: unknown,
-  target: ParsedRequestTarget,
-  state: RuntimeState,
-  gate: StreamGate,
-  rule: MockRule
-): Promise<void> {
-  const delay = getMockDelay(rule);
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      await new Promise((resolve) => setTimeout(resolve, delay()));
-      const appended = appendStreamPayload(target, item, state);
-      if (appended) {
-        gate.increment();
-      }
-      if (target.store && !state.bootstrapPending) {
-        renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
-      }
-    }
-    return;
-  }
-  appendStreamPayload(target, payload, state);
-  gate.increment();
-  if (target.store) {
-    if (!state.bootstrapPending || gate.ready) {
-      renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
-    }
-  }
-}
-
-async function emitMockSse(
-  payload: unknown,
-  target: ParsedRequestTarget,
-  state: RuntimeState,
-  gate: StreamGate,
-  rule: MockRule
-): Promise<void> {
-  const delay = getMockDelay(rule);
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      await new Promise((resolve) => setTimeout(resolve, delay()));
-      const appended = appendStreamPayload(target, item, state);
-      if (appended) {
-        gate.increment();
-      }
-      if (target.store && !state.bootstrapPending) {
-        renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
-      }
-    }
-    gate.resolve();
-    return;
-  }
-  appendStreamPayload(target, payload, state);
-  gate.increment();
-    if (target.store && !state.bootstrapPending) {
-      renderDocument(state, [{ type: "store", selector: target.store }], { appendStores: [target.store] });
-    }
   gate.resolve();
 }
 
@@ -5969,9 +5933,16 @@ function appendStoreItem(store: string, item: unknown, state: RuntimeState, keyS
   return true;
 }
 
-function getMockDelay(rule: MockRule): () => number {
-  const delay = rule.delayMs ?? { min: 200, max: 200 };
-  return () => delay.min + Math.random() * (delay.max - delay.min);
+function resolveMockStreamDelay(state: RuntimeState, kind: "stream" | "sse"): number {
+  const globals = state.globals.hy as HyGlobals & {
+    mockStreamDelayMs?: number;
+    mockSseDelayMs?: number;
+  };
+  const raw = kind === "stream" ? globals.mockStreamDelayMs : globals.mockSseDelayMs;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    return 0;
+  }
+  return raw;
 }
 
 async function runPollingOnce(
@@ -5980,24 +5951,6 @@ async function runPollingOnce(
   target: ParsedRequestTarget,
   state: RuntimeState
 ): Promise<void> {
-  const mockRule = matchMockRule(url, init.method ?? "GET", state.mockRules);
-  if (mockRule) {
-    logMockMatch(state, init.method ?? "GET", url);
-    emitLog(state, {
-      type: "request",
-      message: "polling:mock",
-      detail: { url, method: init.method ?? "GET", path: mockRule.path },
-      timestamp: Date.now()
-    });
-    const payload = await resolvePollingMockPayload(target, mockRule, state);
-    if (payload === null) {
-      return;
-    }
-    applyPollingStore(target, payload, state);
-    return;
-  }
-  logMockUnhandled(state, init.method ?? "GET", url);
-
   try {
     state.pendingRequests += 1;
     state.globals.hy.loading = true;
@@ -6034,29 +5987,6 @@ function applyPollingStore(target: ParsedRequestTarget, payload: unknown, state:
     const changes: PluginChange[] = selectors.map((selector) => ({ type: "store", selector }));
     renderDocument(state, changes);
   }
-}
-
-async function resolvePollingMockPayload(
-  target: ParsedRequestTarget,
-  rule: MockRule,
-  state: RuntimeState
-): Promise<unknown | null> {
-  let queue = state.pollingMockQueues.get(target);
-  if (!queue) {
-    const payload = await fetchMockPayload(rule);
-    const items = Array.isArray(payload) ? payload : [payload];
-    queue = { items, index: 0 };
-    state.pollingMockQueues.set(target, queue);
-  }
-  if (queue.index >= queue.items.length) {
-    return null;
-  }
-  const next = queue.items[queue.index];
-  queue.index += 1;
-  if (next == null) {
-    return null;
-  }
-  return next;
 }
 
 function buildRequestInit(
@@ -6350,29 +6280,6 @@ interface FetchResult {
 
 async function fetchRequest(url: string, init: RequestInit, state: RuntimeState): Promise<FetchResult> {
   const method = (init.method ?? "GET").toUpperCase();
-  if (!state.useMswMock) {
-    const mockRule = matchMockRule(url, method, state.mockRules);
-    if (mockRule) {
-      logMockMatch(state, method, url);
-      const delay = mockRule.delayMs ?? { min: 100, max: 500 };
-      const wait = delay.min + Math.random() * (delay.max - delay.min);
-      await new Promise((resolve) => setTimeout(resolve, wait));
-      const response = await fetch(mockRule.path, { method: "GET" });
-      if (!response.ok) {
-        throw new Error(`Mock fetch failed: ${response.status}`);
-      }
-      const payload = await safeJson(response);
-      const status = mockRule.status ?? response.status;
-      return {
-        data: payload,
-        status,
-        mocked: true,
-        ok: status >= 200 && status < 300
-      };
-    }
-    logMockUnhandled(state, method, url);
-  }
-
   const response = await fetch(url, init);
   return {
     data: await safeJson(response),
@@ -6508,39 +6415,6 @@ function handleCascadeStoreUpdate(store: string, state: RuntimeState): string[] 
   }
 
   return Array.from(clearedStores);
-}
-
-function logMockMatch(state: RuntimeState, method: string, url: string): void {
-  if (state.parsed.executionMode !== "mock") {
-    return;
-  }
-  if (typeof console !== "undefined") {
-    console.debug("request:match", { method, url, mocked: true });
-  }
-}
-
-function logMockUnhandled(state: RuntimeState, method: string, url: string): void {
-  void state;
-  void method;
-  void url;
-}
-
-function matchMockRule(url: string, method: string, rules: MockRule[]): MockRule | null {
-  const fallbackBase = typeof window !== "undefined" ? window.location.href : "";
-  const urlObj = new URL(url, fallbackBase);
-  const pathname = urlObj.pathname;
-  const upperMethod = method.toUpperCase();
-
-  for (const rule of rules) {
-    if (rule.method !== upperMethod) {
-      continue;
-    }
-    if (rule.pattern.test(pathname)) {
-      return rule;
-    }
-  }
-
-  return null;
 }
 
 function applyStore(target: ParsedRequestTarget, response: unknown, state: RuntimeState): unknown {

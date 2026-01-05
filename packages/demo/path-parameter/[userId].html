@@ -200,10 +200,10 @@
       </section>
     </main>
     <script type="module">
-      import { init } from "@hytde/standalone";
+      import "@hytde/standalone/debug";
       // start-script
+      // auto init in debug build
       // end-script
-      init();
     </script>
     <template id="source-inline-script">
       // start-script
@@ -264,7 +264,7 @@
     </script>
     <script type="text/plain" id="source-json-template"></script>
     <template id="source-cdn-template">
-      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.js"&gt;&lt;/script&gt;
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

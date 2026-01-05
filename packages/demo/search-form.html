@@ -176,6 +176,9 @@
         </article>
       </section>
     </main>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
     <script type="module" hy-debug>
       import { http, HttpResponse } from "msw";
       import "@hytde/standalone/debug-api";
@@ -225,10 +228,6 @@
 
       const attachSearchLog = () => {
         const hy = globalThis.hy;
-        if (!hy?.onLog) {
-          setTimeout(attachSearchLog, 50);
-          return;
-        }
         hy.onLog((entry) => {
           if (
             entry?.type === "request" &&
@@ -239,7 +238,7 @@
             logCurrentState(entry.detail?.phase ?? entry.detail?.state ?? "request");
           }
         });
-        hy.onRenderComplete?.(() => {
+        hy.onRenderComplete(() => {
           renderTick += 1;
           logCurrentState("render-complete");
         });
@@ -247,7 +246,8 @@
 
       const registerSearchMock = () => {
         try {
-          globalThis.hy?.mockServiceWorker?.(
+          const hy = globalThis.hy;
+          hy.mockServiceWorker(
             http.get("/api/users/search", async ({ request }) => {
               const url = new URL(request.url);
               const query = url.searchParams.get("q") ?? "";
@@ -266,15 +266,86 @@
       registerSearchMock();
       // end-script
     </script>
-    <script type="module">
-      import { init } from "@hytde/standalone";
-      // start-script
-      init();
-      // end-script
-    </script>
     <template id="source-inline-script">
       // start-script
-      init();
+      import { http, HttpResponse } from "msw";
+      import "@hytde/standalone/debug-api";
+      const fixturePromise = fetch("/mocks/user-search.json")
+        .then((res) => res.json())
+        .then((json) => json?.data ?? { meta: { generatedAt: new Date().toISOString() }, users: [] })
+        .catch((error) => {
+          console.error("Failed to load search fixture", error);
+          return { meta: { generatedAt: new Date().toISOString() }, users: [] };
+        });
+
+      const filterUsers = (users, query, status) => {
+        const needle = query.trim().toLowerCase();
+        const statusNeedle = status.trim().toLowerCase();
+        if (!needle) {
+          return [];
+        }
+        return users.filter((user) => {
+          const matchesPrefix =
+            user.name?.toLowerCase().startsWith(needle) || user.email?.toLowerCase().startsWith(needle);
+          const matchesStatus = !statusNeedle || user.status?.toLowerCase() === statusNeedle;
+          return matchesPrefix && matchesStatus;
+        });
+      };
+
+      const describeCurrentBindings = () => [
+        { selector: "time[hy=\"current.meta.generatedAt |> date('yyyy-MM-dd')\"]", expr: "current.meta.generatedAt" },
+        { selector: "li[hy-for=\"u of current.users\"]", expr: "current.users" },
+        { selector: "a[hy-attr-href=\"/users/{u.id}\"]", expr: "current.users" }
+      ];
+
+      let renderTick = 0;
+
+      const logCurrentState = (context) => {
+        const current = globalThis.hyState?.current ?? null;
+        const users = Array.isArray(current?.users) ? current.users : [];
+        console.debug("[hytde] demo:search-form:store", {
+          context,
+          tick: renderTick,
+          users: users.map((u) => u.name ?? u.id ?? ""),
+          meta: current?.meta ?? null
+        });
+        console.debug("[hytde] demo:search-form:bindings", describeCurrentBindings());
+        console.debug("[hytde] demo:search-form:state-keys", Object.keys(globalThis.hyState ?? {}));
+      };
+
+      const attachSearchLog = () => {
+        const hy = globalThis.hy;
+        hy.onLog((entry) => {
+          if (
+            entry?.type === "request" &&
+            typeof entry.detail?.url === "string" &&
+            entry.detail.url.includes("/api/users/search")
+          ) {
+            console.debug("[hytde] demo:search-form:request-detail", entry.detail ?? null);
+            logCurrentState(entry.detail?.phase ?? entry.detail?.state ?? "request");
+          }
+        });
+        hy.onRenderComplete(() => {
+          renderTick += 1;
+          logCurrentState("render-complete");
+        });
+      };
+
+      try {
+        globalThis.hy.mockServiceWorker(
+          http.get("/api/users/search", async ({ request }) => {
+            const url = new URL(request.url);
+            const query = url.searchParams.get("q") ?? "";
+            const status = url.searchParams.get("status") ?? "";
+            const { meta, users } = await fixturePromise;
+            const filtered = filterUsers(users ?? [], query, status);
+            return HttpResponse.json({ data: { meta, users: filtered } });
+          })
+        );
+        attachSearchLog();
+      } catch (error) {
+        console.error("Failed to register search MSW handler", error);
+      }
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
@@ -333,7 +404,7 @@
     </script>
     <script type="text/plain" id="source-json-template" data-source="mock"></script>
     <template id="source-cdn-template">
-<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.js"></script>
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

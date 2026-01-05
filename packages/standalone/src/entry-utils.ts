@@ -4,7 +4,7 @@ export function initOnReady(init: InitFn): void {
   const run = () => {
     void init();
   };
-  if (document.readyState === "loading") {
+  if (document.readyState === "loading" || document.readyState === "interactive") {
     document.addEventListener("DOMContentLoaded", run, { once: true });
     return;
   }

@@ -147,15 +147,16 @@
       </section>
     </main>
     <script type="module">
-      import { init } from "@hytde/standalone";
+      import "@hytde/standalone/debug";
+    </script>
+    <script type="module" hy-debug>
       // start-script
-      globalThis.hy.registerTransform("capital", "string", (input) => input.toUpperCase());
+      hy.registerTransform("capital", "string", (input) => input.toUpperCase());
       // end-script
-      init();
     </script>
     <template id="source-inline-script">
       // start-script
-      globalThis.hy.registerTransform("capital", "string", (input) => input.toUpperCase());
+      hy.registerTransform("capital", "string", (input) => input.toUpperCase());
       // end-script
     </template>
     <script type="text/plain" id="source-html-template">
@@ -178,7 +179,7 @@
     </script>
     <script type="text/plain" id="source-json-template" data-source="mock"></script>
     <template id="source-cdn-template">
-      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/index.js"&gt;&lt;/script&gt;
+      &lt;script type="module" src="https://cdn.jsdelivr.net/npm/@hytde/standalone/dist/debug-auto/index.js"&gt;&lt;/script&gt;
     </template>
     <script type="module" src="/src/main.ts"></script>
   </body>

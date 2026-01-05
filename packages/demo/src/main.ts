@@ -524,9 +524,9 @@ registerRuntimeHooks();
 const runtimeGlobal = globalThis as typeof globalThis & {
   hy?: { onRenderComplete?: (cb: () => void) => void; onLog?: (cb: (entry: unknown) => void) => void };
 };
-runtimeGlobal.hy?.onRenderComplete?.(dumpTransformed);
-runtimeGlobal.hy?.onRenderComplete?.(updatePopoverVisibility);
-runtimeGlobal.hy?.onLog?.(appendLog);
+runtimeGlobal.hy.onRenderComplete(dumpTransformed);
+runtimeGlobal.hy.onRenderComplete(updatePopoverVisibility);
+runtimeGlobal.hy.onLog(appendLog);
 const bufferedLogs = (runtimeGlobal.hy as Record<string, unknown> | undefined)?.[LOG_BUFFER_KEY];
 if (Array.isArray(bufferedLogs)) {
   bufferedLogs.forEach((entry) => appendLog(entry as { type: string; message: string; detail?: Record<string, unknown>; timestamp: number }));

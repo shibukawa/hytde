@@ -102,18 +102,33 @@ Notes:
 - v1 can treat “startup `hy-get` elements” as “fire on initial load”.
 - forms only send requests on submit/auto-submit; they are not part of the “initial request plan” unless explicitly triggered (e.g. `hy-history="sync-..."` auto-submit behavior).
 
-## 5.1 Runtime workflow (requests, gating, render)
+## 5.1 Runtime initialization order (auto/manual)
+
+Auto build order (debug/production auto):
+1. Runtime module load initializes `hy` globals only (no parsing yet).
+2. User module script (after runtime import) registers mocks, table formulas, etc.
+3. On `DOMContentLoaded`, parse/import runs.
+4. If `hy-table-data` is present, dynamically `import()` the table bundle and apply registered formulas/styles.
+5. Register `<meta name="hy-mock">` handlers, start MSW (debug builds).
+6. Initial data fetch begins, then first render occurs.
+
+Manual build order (debug/production manual):
+1. Runtime module load initializes `hy` globals only.
+2. User calls `init()` to run the same parse/import → MSW → initial fetch pipeline.
+
+## 5.2 Runtime workflow (requests, gating, render)
 
 High-level workflow (browser runtime):
 1. Parse document and collect directives (including stream/SSE/polling tags).
-2. Run startup requests:
+2. If `hy-table-data` is present, dynamically load the table bundle (`import()`).
+3. Run startup requests:
    - `hy-get` / `hy-post` / ... (one-shot)
    - `hy-get-stream` (gated by `stream-initial` / `stream-timeout`)
    - `hy-sse` (gated by `stream-initial` / `stream-timeout`)
    - `hy-get-polling` (first tick)
-3. When all startup requests and gates are satisfied, perform the first render:
+4. When all startup requests and gates are satisfied, perform the first render:
    - `hy-cloak` is cleared and faded in after first render.
-4. Subsequent updates:
+5. Subsequent updates:
    - `hy-get-polling` replaces store on each tick (if valid JSON).
    - `hy-get-stream` / `hy-sse` append items and render only newly appended rows.
 
