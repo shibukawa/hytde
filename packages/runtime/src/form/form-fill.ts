@@ -1,5 +1,6 @@
 import type { RuntimeState } from "../state";
 import type { ParsedFillTarget } from "../types";
+import { evaluateExpression } from "../state/expression";
 
 export function applyFillTargets(targets: ParsedFillTarget[], state: RuntimeState, scope: Array<Record<string, unknown>>): void {
   if (targets.length === 0) {
@@ -94,11 +95,4 @@ export function applyControlValue(
   }
 
   control.value = String(value);
-}
-
-function evaluateExpression(expression: string, scope: Array<Record<string, unknown>>, state: RuntimeState): unknown {
-  void state;
-  void expression;
-  void scope;
-  return null;
 }

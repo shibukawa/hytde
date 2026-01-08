@@ -1,5 +1,5 @@
 import { createHyError, pushError } from "../errors/ui";
-import { emitLog } from "./logging";
+import { emitLog } from "../utils/logging";
 import type { CascadeDisabledState, CascadeState } from "../state";
 import type { ParsedDocument, ParsedRequestTarget } from "../types";
 import type { RuntimeState } from "../state";

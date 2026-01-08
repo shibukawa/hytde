@@ -1,5 +1,5 @@
 import type { ColumnSchema, ColumnType, CoreInit, CoreOptions, ExtableCore, Schema } from "@extable/core";
-import { ensureExtableCore } from "../table/loader";
+import { ensureExtableCore } from "./loader";
 import { resolvePath } from "../utils/path";
 import { parseSelectorTokens } from "../utils/selectors";
 import { createHyError, pushError } from "../errors/ui";
