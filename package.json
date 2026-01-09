@@ -23,6 +23,7 @@
     "dev": "npm run dev --workspaces",
     "dev:demo": "npm run dev -w packages/demo",
     "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test": "npm run test --workspaces"
   },

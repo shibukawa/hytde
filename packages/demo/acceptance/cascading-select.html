@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/categories path=/archive/mocks/cascading/categories.json" />
+    <meta name="hy-mock" content="pattern=/api/subcategories/a1 path=/archive/mocks/cascading/subcategories-a1.json" />
+    <meta name="hy-mock" content="pattern=/api/items/b1 path=/archive/mocks/cascading/items-b1.json" />
+    <title>Acceptance - Cascading Select</title>
+  </head>
+  <body>
+    <section>
+      <hy-get src="/api/categories" store="aOptions"></hy-get>
+      <label>
+        Category
+        <select name="a" hy-get="/api/subcategories/{a}" hy-store="bOptions">
+          <option value="">(select one)</option>
+          <option hy-for="a of aOptions" hy-attr-value="{a.id}" hy="a.name"></option>
+        </select>
+      </label>
+      <label>
+        Subcategory
+        <select name="b" hy-get="/api/items/{b}" hy-store="cOptions">
+          <option value="">(select one)</option>
+          <option hy-for="b of bOptions" hy-attr-value="{b.id}" hy="b.name"></option>
+        </select>
+      </label>
+      <label>
+        Item
+        <select name="c">
+          <option value="">(select one)</option>
+          <option hy-for="c of cOptions" hy-attr-value="{c.id}" hy="c.name"></option>
+        </select>
+      </label>
+    </section>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
+  </body>
+</html>
