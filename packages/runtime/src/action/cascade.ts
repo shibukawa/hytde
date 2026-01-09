@@ -1,5 +1,6 @@
 import { createHyError, pushError } from "../errors/ui";
 import { emitLog } from "../utils/logging";
+import { parseSelectorTokens } from "../utils/selectors";
 import type { CascadeDisabledState, CascadeState } from "../state";
 import type { ParsedDocument, ParsedRequestTarget } from "../types";
 import type { RuntimeState } from "../state";
@@ -27,14 +28,27 @@ export function buildCascadeState(state: RuntimeState | null, parsed: ParsedDocu
       continue;
     }
     const store = target.store;
-    if (!storeToSelects.has(store)) {
-      storeToSelects.set(store, new Set());
-    }
-    storeToSelects.get(store)?.add(select);
     if (!selectToStores.has(select)) {
       selectToStores.set(select, new Set());
     }
     selectToStores.get(select)?.add(store);
+  }
+
+  for (const template of parsed.forTemplates) {
+    const select = findSelectAncestor(template.marker);
+    if (!select) {
+      continue;
+    }
+    selectIds.set(select, select.id || select.name || "select");
+    const tokens = parseSelectorTokens(template.selector);
+    const store = typeof tokens[0] === "string" ? tokens[0] : null;
+    if (!store) {
+      continue;
+    }
+    if (!storeToSelects.has(store)) {
+      storeToSelects.set(store, new Set());
+    }
+    storeToSelects.get(store)?.add(select);
   }
 
   const edges = new Map<HTMLSelectElement, Set<HTMLSelectElement>>();
@@ -69,6 +83,17 @@ export function buildCascadeState(state: RuntimeState | null, parsed: ParsedDocu
     disabledState,
     actionSkip
   };
+}
+
+function findSelectAncestor(element: Element | null): HTMLSelectElement | null {
+  let current: Element | null = element;
+  while (current) {
+    if (current instanceof HTMLSelectElement) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
 }
 
 function detectCascadeCycles(
@@ -184,6 +209,8 @@ export function enableCascadeSelect(select: HTMLSelectElement, state: RuntimeSta
 
 export function resetCascadeSelect(select: HTMLSelectElement, state: RuntimeState): boolean {
   let reset = false;
+  const previousValue = select.value;
+  const previousIndex = select.selectedIndex;
   const placeholder = Array.from(select.options).find((option) => option.value === "" || option.value == null) ?? null;
   if (placeholder) {
     select.value = placeholder.value ?? "";
@@ -192,7 +219,7 @@ export function resetCascadeSelect(select: HTMLSelectElement, state: RuntimeStat
     select.selectedIndex = 0;
     reset = true;
   }
-  if (reset) {
+  if (reset && (select.value !== previousValue || select.selectedIndex !== previousIndex)) {
     state.cascade.actionSkip.add(select);
   }
   return reset;
