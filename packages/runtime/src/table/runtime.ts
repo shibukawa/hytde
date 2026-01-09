@@ -1,4 +1,4 @@
-import type { ColumnSchema, ColumnType, CoreInit, CoreOptions, ExtableCore, Schema } from "@extable/core";
+import type { ColumnSchema, CoreInit, CoreOptions, ExtableCore, Schema } from "@extable/core";
 import { ensureExtableCore } from "./loader";
 import { resolvePath } from "../utils/path";
 import { parseSelectorTokens } from "../utils/selectors";
@@ -169,72 +169,31 @@ function registerTableEntry(
 }
 
 async function initializeTables(
-  doc: Document,
+  _doc: Document,
   scope: typeof globalThis,
   state: RuntimeState,
   pluginState: TablePluginState
 ): Promise<void> {
-  const tables = Array.from(doc.querySelectorAll("table[hy-table-data]")) as HTMLTableElement[];
+  emitTableDiagnostics(state);
+  const tables = state.parsed.tables;
   if (tables.length === 0) {
     return;
   }
   await ensureExtableCore(scope);
 
-  const tableIdGroups = new Map<string, HTMLTableElement[]>();
   const registry = getTableRegistry(scope);
-  for (const table of tables) {
-    const rawId = table.getAttribute("hy-table-data") ?? "";
-    const tableId = rawId.trim();
-    if (!tableId) {
-      pushTableDiagnostic(state, "hy-table-data is required for table enhancement.", {
-        attribute: "hy-table-data",
-        selector: buildTableSelector(rawId)
-      });
-      continue;
-    }
-    const list = tableIdGroups.get(tableId);
-    if (list) {
-      list.push(table);
-    } else {
-      tableIdGroups.set(tableId, [table]);
-    }
-  }
-
   const columnKeysByTable = new Map<string, Set<string>>();
 
-  for (const [tableId, group] of tableIdGroups) {
-    if (group.length > 1) {
-      for (const table of group) {
-        pushTableDiagnostic(state, `Duplicate hy-table-data value "${tableId}" detected.`, {
-          attribute: "hy-table-data",
-          selector: buildTableSelector(tableId)
-        });
-      }
+  for (const entry of tables) {
+    const tableId = entry.tableId;
+    if (!tableId || pluginState.instances.has(tableId)) {
       continue;
     }
-    const table = group[0];
-    if (pluginState.instances.has(tableId)) {
-      continue;
-    }
-
-    const headerRow = findHeaderRow(table);
-    if (!headerRow) {
-      pushTableDiagnostic(state, "Table header row (<thead><th>) is required for extable enhancement.", {
-        attribute: "hy-table-data",
-        selector: buildTableSelector(tableId)
-      });
-      continue;
-    }
-
-    const columns = parseColumns(tableId, headerRow, state);
+    const table = entry.table;
+    const columns: ColumnDefinition[] = entry.columns.map((column) => ({ ...column }));
     if (columns.length === 0) {
-      pushTableDiagnostic(state, "No valid columns were found for table enhancement.", {
-        attribute: "hy-column",
-        selector: buildTableSelector(tableId)
-      });
       continue;
     }
-
     const columnKeys = new Set(columns.map((column) => column.key));
     columnKeysByTable.set(tableId, columnKeys);
 
@@ -256,7 +215,13 @@ async function initializeTables(
       }
     }
 
-    const tableDefinition = buildTableDefinition(tableId, table, columns, state);
+    const tableDefinition: TableDefinition = {
+      tableId,
+      dataPath: entry.dataPath,
+      options: entry.options,
+      columns,
+      bindShortcut: entry.bindShortcut
+    };
     const instance = mountTable(tableDefinition, table, scope, state, mergedFormulas, mergedConditionalStyles);
     if (!instance) {
       continue;
@@ -265,235 +230,6 @@ async function initializeTables(
   }
 
   emitRegistryDiagnostics(state, scope, columnKeysByTable);
-}
-
-function findHeaderRow(table: HTMLTableElement): HTMLTableRowElement | null {
-  const thead = table.querySelector("thead");
-  if (!thead) {
-    return null;
-  }
-  const rows = Array.from(thead.querySelectorAll("tr"));
-  for (const row of rows) {
-    const hasTh = Array.from(row.children).some((child) => child.tagName === "TH");
-    if (hasTh) {
-      return row as HTMLTableRowElement;
-    }
-  }
-  return null;
-}
-
-function parseColumns(tableId: string, row: HTMLTableRowElement, state: RuntimeState): ColumnDefinition[] {
-  const columns: ColumnDefinition[] = [];
-  const cells = Array.from(row.children).filter((child) => child.tagName === "TH") as HTMLTableCellElement[];
-  for (const cell of cells) {
-    const columnDefinition = parseColumnDefinition(tableId, cell, state);
-    if (!columnDefinition) {
-      continue;
-    }
-    columns.push(columnDefinition);
-  }
-  return columns;
-}
-
-function parseColumnDefinition(
-  tableId: string,
-  cell: HTMLTableCellElement,
-  state: RuntimeState
-): ColumnDefinition | null {
-  const columnAttr = cell.getAttribute("hy-column") ?? "";
-  const declarations = parseDeclarationList(columnAttr);
-  const key = declarations.find((entry) => entry.key === "key")?.value ?? "";
-  if (!key) {
-    pushTableDiagnostic(state, "hy-column requires a key entry.", {
-      attribute: "hy-column",
-      selector: buildTableSelector(tableId),
-      context: cell.textContent ? cell.textContent.trim() : ""
-    });
-    return null;
-  }
-
-  const typeValue = declarations.find((entry) => entry.key === "type")?.value;
-  const type = parseColumnType(typeValue ? typeValue.trim() : "");
-  const format = declarations.find((entry) => entry.key === "format")?.value;
-  const header = (cell.textContent ?? "").trim();
-  const width = resolveWidth(cell);
-
-  return {
-    key,
-    type,
-    header: header || undefined,
-    width,
-    format: format ? format.trim() : undefined
-  };
-}
-
-function parseColumnType(typeValue: string): ColumnType {
-  switch (typeValue) {
-    case "number":
-    case "date":
-    case "boolean":
-    case "string":
-      return typeValue;
-    default:
-      return "string";
-  }
-}
-
-function resolveWidth(cell: HTMLTableCellElement): number | undefined {
-  const styleAttr = cell.getAttribute("style") ?? "";
-  const declarations = parseDeclarationList(styleAttr);
-  const styleWidth = declarations.find((entry) => entry.key === "width")?.value;
-  const widthAttr = cell.getAttribute("width")?.trim();
-  const rawWidth = styleWidth || widthAttr;
-  if (!rawWidth) {
-    return undefined;
-  }
-  const parsed = Number.parseFloat(rawWidth);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function buildTableDefinition(
-  tableId: string,
-  table: HTMLTableElement,
-  columns: ColumnDefinition[],
-  state: RuntimeState
-): TableDefinition {
-  const dataPath = tableId.trim() || null;
-  const parsedOptions = parseOptions(tableId, table, state);
-
-  return {
-    tableId,
-    dataPath,
-    options: parsedOptions.options,
-    columns,
-    bindShortcut: parsedOptions.bindShortcut
-  };
-}
-
-function parseOptions(
-  tableId: string,
-  table: HTMLTableElement,
-  state: RuntimeState
-): { options: CoreOptions; bindShortcut: boolean } {
-  const options: CoreOptions = {};
-  let bindShortcut = false;
-  const raw = table.getAttribute("hy-table-option") ?? "";
-  const declarations = parseDeclarationList(raw);
-  for (const entry of declarations) {
-    const key = entry.key.toLowerCase();
-    if (key === "render-mode") {
-      const renderMode = parseRenderMode(entry.value);
-      if (renderMode) {
-        options.renderMode = renderMode;
-      } else {
-        pushTableDiagnostic(state, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
-          attribute: "hy-table-option",
-          selector: buildTableSelector(tableId),
-          context: entry.key
-        });
-      }
-      continue;
-    }
-    if (key === "edit-mode") {
-      const editMode = parseEditMode(entry.value);
-      if (editMode) {
-        options.editMode = editMode;
-      } else {
-        pushTableDiagnostic(state, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
-          attribute: "hy-table-option",
-          selector: buildTableSelector(tableId),
-          context: entry.key
-        });
-      }
-      continue;
-    }
-    if (key === "lock-mode") {
-      const lockMode = parseLockMode(entry.value);
-      if (lockMode) {
-        options.lockMode = lockMode;
-      } else {
-        pushTableDiagnostic(state, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
-          attribute: "hy-table-option",
-          selector: buildTableSelector(tableId),
-          context: entry.key
-        });
-      }
-      continue;
-    }
-    if (key === "lang") {
-      const langs = entry.value.split(/\s+/).filter(Boolean);
-      if (langs.length > 0) {
-        options.langs = langs;
-      }
-      continue;
-    }
-    if (key === "bind-shortcut") {
-      const parsed = parseBool(entry.value);
-      if (parsed == null) {
-        pushTableDiagnostic(state, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
-          attribute: "hy-table-option",
-          selector: buildTableSelector(tableId),
-          context: entry.key
-        });
-      } else {
-        bindShortcut = parsed;
-      }
-      continue;
-    }
-    if (key === "default-class" || key === "default-style") {
-      continue;
-    }
-
-    pushTableDiagnostic(state, `Unknown hy-table-option key "${entry.key}".`, {
-      attribute: "hy-table-option",
-      selector: buildTableSelector(tableId),
-      context: entry.key
-    });
-  }
-  return { options, bindShortcut };
-}
-
-function parseRenderMode(value: string): CoreOptions["renderMode"] {
-  switch (value.trim().toLowerCase()) {
-    case "html":
-    case "canvas":
-    case "auto":
-      return value.trim().toLowerCase() as CoreOptions["renderMode"];
-    default:
-      return undefined;
-  }
-}
-
-function parseEditMode(value: string): CoreOptions["editMode"] {
-  switch (value.trim().toLowerCase()) {
-    case "direct":
-    case "commit":
-    case "readonly":
-      return value.trim().toLowerCase() as CoreOptions["editMode"];
-    default:
-      return undefined;
-  }
-}
-
-function parseLockMode(value: string): CoreOptions["lockMode"] {
-  switch (value.trim().toLowerCase()) {
-    case "none":
-    case "row":
-      return value.trim().toLowerCase() as CoreOptions["lockMode"];
-    default:
-      return undefined;
-  }
-}
-
-function parseBool(value: string): boolean | null {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "true") {
-    return true;
-  }
-  if (normalized === "false") {
-    return false;
-  }
-  return null;
 }
 
 function mountTable(
@@ -677,83 +413,12 @@ function emitRegistryDiagnostics(
   }
 }
 
-function buildTableSelector(tableId: string): string {
-  const escaped = tableId.replace(/"/g, "\\\"");
-  return `table[hy-table-data="${escaped}"]`;
+function emitTableDiagnostics(state: RuntimeState): void {
+  for (const diagnostic of state.parsed.tableDiagnostics) {
+    pushTableDiagnostic(state, diagnostic.message, diagnostic.detail);
+  }
 }
 
 function pushTableDiagnostic(state: RuntimeState, message: string, detail?: HyError["detail"]): void {
   pushError(state, createHyError("data", message, detail));
-}
-
-function parseDeclarationList(input: string): Array<{ key: string; value: string }> {
-  const entries: Array<{ key: string; value: string }> = [];
-  let key = "";
-  let value = "";
-  let mode: "key" | "value" = "key";
-  let quote: "\"" | "'" | null = null;
-  let escaped = false;
-
-  const flush = () => {
-    const trimmedKey = key.trim();
-    if (trimmedKey) {
-      entries.push({ key: trimmedKey, value: value.trim() });
-    }
-    key = "";
-    value = "";
-    mode = "key";
-  };
-
-  for (let index = 0; index < input.length; index += 1) {
-    const char = input[index];
-    if (escaped) {
-      if (mode === "key") {
-        key += char;
-      } else {
-        value += char;
-      }
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-
-    if (quote) {
-      if (char === quote) {
-        quote = null;
-      } else if (mode === "key") {
-        key += char;
-      } else {
-        value += char;
-      }
-      continue;
-    }
-
-    if (char === "\"" || char === "'") {
-      quote = char;
-      continue;
-    }
-
-    if (char === ":" && mode === "key") {
-      mode = "value";
-      continue;
-    }
-
-    if (char === ";") {
-      flush();
-      continue;
-    }
-
-    if (mode === "key") {
-      key += char;
-    } else {
-      value += char;
-    }
-  }
-
-  flush();
-  return entries;
 }

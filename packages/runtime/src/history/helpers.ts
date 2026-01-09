@@ -1,28 +1,15 @@
 import type { RuntimeState } from "../state";
 
 export function getHistoryForms(state: RuntimeState): HTMLFormElement[] {
-  return Array.from(state.doc.querySelectorAll<HTMLFormElement>("form[hy-history]"));
+  return state.parsed.historyForms.map((entry) => entry.form);
 }
 
-export function getHistoryMode(form: HTMLFormElement): "sync" | "sync-push" | "sync-replace" | null {
-  const raw = form.getAttribute("hy-history")?.trim();
-  if (!raw) {
-    return null;
-  }
-  if (raw === "sync" || raw === "sync-push" || raw === "sync-replace") {
-    return raw;
-  }
-  if (raw === "push") {
-    return "sync-push";
-  }
-  if (raw === "replace") {
-    return "sync-replace";
-  }
-  return null;
+export function getHistoryMode(form: HTMLFormElement, state: RuntimeState): "sync" | "sync-push" | "sync-replace" | null {
+  return getHistoryConfig(form, state)?.mode ?? null;
 }
 
-export function getHistoryParamSource(form: HTMLFormElement): "search" | "hash" {
-  return form.getAttribute("hy-history-params") === "hash" ? "hash" : "search";
+export function getHistoryParamSource(form: HTMLFormElement, state: RuntimeState): "search" | "hash" {
+  return getHistoryConfig(form, state)?.paramsSource ?? "search";
 }
 
 export function getHistoryParams(form: HTMLFormElement, state: RuntimeState): URLSearchParams {
@@ -30,24 +17,20 @@ export function getHistoryParams(form: HTMLFormElement, state: RuntimeState): UR
   if (!view) {
     return new URLSearchParams();
   }
-  const source = getHistoryParamSource(form);
+  const source = getHistoryParamSource(form, state);
   if (source === "hash") {
     return new URLSearchParams(view.location.hash.replace(/^#/, ""));
   }
   return new URLSearchParams(view.location.search.replace(/^\?/, ""));
 }
 
-export function getHistoryFieldNames(form: HTMLFormElement): Set<string> | null {
-  const raw = form.getAttribute("hy-history-fields");
-  if (!raw) {
-    return null;
-  }
-  const names = raw.split(/\s+/).map((item) => item.trim()).filter(Boolean);
-  return names.length > 0 ? new Set(names) : null;
+export function getHistoryFieldNames(form: HTMLFormElement, state: RuntimeState): Set<string> | null {
+  const names = getHistoryConfig(form, state)?.fieldNames ?? null;
+  return names ? new Set(names) : null;
 }
 
-export function hasHistoryParams(form: HTMLFormElement, params: URLSearchParams): boolean {
-  const fieldNames = getHistoryFieldNames(form);
+export function hasHistoryParams(form: HTMLFormElement, params: URLSearchParams, state: RuntimeState): boolean {
+  const fieldNames = getHistoryFieldNames(form, state);
   if (!fieldNames) {
     return params.toString().length > 0;
   }
@@ -59,8 +42,12 @@ export function hasHistoryParams(form: HTMLFormElement, params: URLSearchParams)
   return false;
 }
 
-export function applyHistoryParamsToForm(form: HTMLFormElement, params: URLSearchParams): boolean {
-  const controls = getHistoryControls(form);
+export function applyHistoryParamsToForm(
+  form: HTMLFormElement,
+  params: URLSearchParams,
+  state: RuntimeState
+): boolean {
+  const controls = getHistoryControls(form, state);
   let hasAny = false;
 
   for (const control of controls) {
@@ -78,18 +65,34 @@ export function applyHistoryParamsToForm(form: HTMLFormElement, params: URLSearc
 }
 
 export function getHistoryControls(
-  form: HTMLFormElement
+  form: HTMLFormElement,
+  state: RuntimeState
 ): Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> {
-  const fieldNames = getHistoryFieldNames(form);
-  const controls = Array.from(
-    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-      "input[name], select[name], textarea[name]"
-    )
-  );
+  const fieldNames = getHistoryFieldNames(form, state);
+  const controls = Array.from(form.elements).filter(isHistoryControlElement);
   if (!fieldNames) {
     return controls;
   }
   return controls.filter((control) => fieldNames.has(control.name));
+}
+
+function getHistoryConfig(form: HTMLFormElement, state: RuntimeState) {
+  return state.parsed.historyForms.find((entry) => entry.form === form) ?? null;
+}
+
+function isHistoryControlElement(
+  element: Element
+): element is HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement {
+  if (element instanceof HTMLInputElement) {
+    return Boolean(element.name);
+  }
+  if (element instanceof HTMLSelectElement) {
+    return Boolean(element.name);
+  }
+  if (element instanceof HTMLTextAreaElement) {
+    return Boolean(element.name);
+  }
+  return false;
 }
 
 export function applyHistoryValueToControl(

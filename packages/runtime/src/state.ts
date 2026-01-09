@@ -164,6 +164,7 @@ export interface RuntimeState {
   cloakApplied: boolean;
   appendStores: Set<string> | null;
   appendLogOnlyNew: boolean;
+  appendMarkedElements: Set<Element>;
   streamKeyCache: Map<string, Set<string>>;
   sseSources: Map<ParsedRequestTarget, EventSource>;
   pollingTimers: Map<ParsedRequestTarget, number>;

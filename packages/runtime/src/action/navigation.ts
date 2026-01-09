@@ -21,7 +21,7 @@ export function setupNavigationHandlers(state: RuntimeState): void {
       return;
     }
     const target = event.target instanceof Element ? event.target : null;
-    const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+    const anchor = findClosestAnchor(target);
     if (!anchor) {
       return;
     }
@@ -47,6 +47,17 @@ export function setupNavigationHandlers(state: RuntimeState): void {
     event.preventDefault();
     void navigateWithHashFallback(canonicalUrl.toString(), fallbackUrl.toString(), view);
   });
+}
+
+function findClosestAnchor(element: Element | null): HTMLAnchorElement | null {
+  let current: Element | null = element;
+  while (current) {
+    if (current instanceof HTMLAnchorElement && current.hasAttribute("href")) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
 }
 
 export function resolveNavigationUrl(urlString: string, doc: Document): URL | null {
@@ -97,7 +108,7 @@ export function maybeRedirectAfterSubmit(target: import("../types").ParsedReques
   if (target.method === "GET") {
     return;
   }
-  const redirectAttr = getRedirectAttribute(target);
+  const redirectAttr = target.redirect;
   if (!redirectAttr) {
     return;
   }
@@ -136,17 +147,6 @@ export function maybeRedirectAfterSubmit(target: import("../types").ParsedReques
     return;
   }
   view.location.assign(canonicalUrl.toString());
-}
-
-export function getRedirectAttribute(target: import("../types").ParsedRequestTarget): string | null {
-  const direct = target.element.getAttribute("hy-redirect");
-  if (direct) {
-    return direct;
-  }
-  if (target.form) {
-    return target.form.getAttribute("hy-redirect");
-  }
-  return null;
 }
 
 function recordRedirectError(state: RuntimeState, url: string, message: string): void {

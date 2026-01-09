@@ -55,10 +55,6 @@ export function ensureExtableStylesheet(doc: Document): void {
   head.append(link);
 }
 
-export function countTableMarkers(doc: Document): number {
-  return doc.querySelectorAll("table[hy-table-data]").length;
-}
-
 function ensureHy(scope: typeof globalThis): HyTableState {
   if (!scope.hy) {
     scope.hy = { loading: false, errors: [] };

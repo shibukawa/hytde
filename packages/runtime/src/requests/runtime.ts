@@ -22,7 +22,7 @@ import { resolveUrlTemplate, type InterpolationResult, type ScopeStack } from ".
 import { buildScopeStack, renderDocument } from "../render";
 import { applyControlValue, fillForm } from "../form/form-fill";
 import { handleCascadeStoreUpdate, markCascadeRequestPending } from "../action/cascade";
-import { getRedirectAttribute, maybeRedirectAfterSubmit } from "../action/navigation";
+import { maybeRedirectAfterSubmit } from "../action/navigation";
 import { maybeUpdateHistoryOnSubmit } from "../history/runtime";
 import { clearFormStateOnRequest, disableFormControls, restoreFormControls } from "../form/form-state";
 import { emitAsyncUploadError } from "../uploader/async-upload-errors";
@@ -162,8 +162,8 @@ function applyRequestPayload(
   options: { skipRedirect?: boolean } = {}
 ): void {
   applyStore(target, payload, state);
-  if (target.fillInto) {
-    applyFillInto(target.fillInto, payload, state);
+  if (target.fillIntoForms.length > 0) {
+    applyFillInto(target.fillIntoForms, payload, state);
   }
   if (!options.skipRedirect) {
     maybeRedirectAfterSubmit(target, payload, state);
@@ -279,7 +279,7 @@ export async function handleRequest(
 
   const isSubmitTarget = target.trigger === "submit" && target.form;
   const session = target.form ? state.asyncUploads.get(target.form) ?? null : null;
-  const redirectAttr = isSubmitTarget ? getRedirectAttribute(target) : null;
+  const redirectAttr = isSubmitTarget ? target.redirect : null;
   const afterSubmitAction: AfterSubmitAction = session?.config.afterSubmitAction ?? "keep";
   const afterSubmitActionPresent = session?.config.afterSubmitActionPresent ?? false;
   const redirectConflict = Boolean(session?.config.redirectConflict) || (Boolean(redirectAttr) && afterSubmitActionPresent);
@@ -895,13 +895,10 @@ function applyStore(target: ParsedRequestTarget, response: unknown, state: Runti
   return payload;
 }
 
-function applyFillInto(selector: string, payload: unknown, state: RuntimeState): void {
+function applyFillInto(forms: HTMLFormElement[], payload: unknown, state: RuntimeState): void {
   if (!payload || typeof payload !== "object") {
     return;
   }
-  const forms = Array.from(state.doc.querySelectorAll<HTMLFormElement>(selector)).filter(
-    (element) => element instanceof HTMLFormElement
-  );
   for (const form of forms) {
     fillForm(form, payload as Record<string, unknown>);
   }

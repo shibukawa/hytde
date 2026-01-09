@@ -10,11 +10,7 @@ type LogFormValue = string | number | boolean | null | LogFileValue;
 type LogFormEntry = { name: string; value: LogFormValue | LogFormValue[] };
 
 export function collectFormValues(form: HTMLFormElement): FormEntry[] {
-  const controls = Array.from(
-    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-      "input[name], select[name], textarea[name]"
-    )
-  );
+  const controls = Array.from(form.elements).filter(isFormValueControlElement);
   const entries: FormEntry[] = [];
 
   for (const control of controls) {
@@ -81,11 +77,7 @@ export function collectFormValues(form: HTMLFormElement): FormEntry[] {
 }
 
 export function collectFormValuesWithoutFiles(form: HTMLFormElement): FormEntry[] {
-  const controls = Array.from(
-    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-      "input[name], select[name], textarea[name]"
-    )
-  );
+  const controls = Array.from(form.elements).filter(isFormValueControlElement);
   const entries: FormEntry[] = [];
 
   for (const control of controls) {
@@ -141,6 +133,21 @@ export function collectFormValuesWithoutFiles(form: HTMLFormElement): FormEntry[
   }
 
   return entries;
+}
+
+function isFormValueControlElement(
+  element: Element
+): element is HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement {
+  if (element instanceof HTMLInputElement) {
+    return Boolean(element.name);
+  }
+  if (element instanceof HTMLSelectElement) {
+    return Boolean(element.name);
+  }
+  if (element instanceof HTMLTextAreaElement) {
+    return Boolean(element.name);
+  }
+  return false;
 }
 
 export function formEntriesToPayload(entries: FormEntry[]): Record<string, unknown> {

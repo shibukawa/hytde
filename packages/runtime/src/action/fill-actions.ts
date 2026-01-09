@@ -5,78 +5,40 @@ import type { ParsedRequestTarget } from "../types";
 import type { RuntimeState } from "../state";
 
 export function applyFillActionIfNeeded(target: ParsedRequestTarget, state: RuntimeState): void {
-  const selectorRaw = target.fillTarget;
-  if (selectorRaw === null) {
+  const control = target.fillTargetElement;
+  if (!control) {
     return;
   }
-  applyFillAction(
-    selectorRaw,
-    target.form ?? (target.element.closest("form") as HTMLFormElement | null),
-    target.element,
-    state,
-    target.fillValue
-  );
+  applyFillToControl(control, target.form ?? null, target.element, state, target.fillValue, target.fillTargetSelector);
 }
 
 export function applyFillActionFromElement(element: Element, state: RuntimeState): void {
   const data = state.fillActionData.get(element);
-  const selectorRaw = data?.selector ?? element.getAttribute("hy-fill");
-  if (selectorRaw === null || selectorRaw === undefined) {
+  const control = data?.target ?? null;
+  if (!control) {
     return;
   }
-  applyFillAction(
-    selectorRaw,
-    data?.form ?? (element.closest("form") as HTMLFormElement | null),
+  applyFillToControl(
+    control,
+    data?.form ?? null,
     element,
     state,
-    data?.value ?? element.getAttribute("hy-value")
+    data?.value ?? null,
+    data?.selector ?? null
   );
 }
 
-function applyFillAction(
-  selectorRaw: string,
+function applyFillToControl(
+  control: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
   form: HTMLFormElement | null,
   element: Element,
   state: RuntimeState,
-  explicitValue: string | null
+  explicitValue: string | null,
+  selector: string | null
 ): void {
-  const selector = selectorRaw.trim();
-  if (!selector) {
-    emitFillError(state, "hy-fill requires a non-empty selector.", {
-      elementId: (element as HTMLElement).id || undefined
-    });
-    return;
-  }
-  const root: ParentNode = form ?? element.ownerDocument;
-  let matches: Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
-  try {
-    matches = Array.from(root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(selector));
-  } catch (error) {
-    emitFillError(state, "hy-fill selector is invalid.", {
-      selector,
-      formId: form?.id || undefined,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return;
-  }
-  if (matches.length === 0) {
-    emitFillError(state, "hy-fill selector did not match any control.", {
-      selector,
-      formId: form?.id || undefined
-    });
-    return;
-  }
-  if (matches.length > 1) {
-    emitFillError(state, "hy-fill selector matched multiple controls.", {
-      selector,
-      formId: form?.id || undefined
-    });
-    return;
-  }
-  const control = matches[0];
   if (!isFormControl(control)) {
     emitFillError(state, "hy-fill target is not a form control.", {
-      selector,
+      selector: selector ?? undefined,
       formId: form?.id || undefined
     });
     return;
@@ -87,7 +49,7 @@ function applyFillAction(
     type: "info",
     message: "fill:apply",
     detail: {
-      selector,
+      selector: selector ?? undefined,
       value,
       formId: form?.id || undefined,
       targetName: control.name || undefined
@@ -150,8 +112,8 @@ function emitFillError(state: RuntimeState, message: string, detail?: Record<str
 
 export function getFillSelectorFromElement(element: Element, state: RuntimeState): string | null {
   const data = state.fillActionData.get(element);
-  const raw = data?.selector ?? element.getAttribute("hy-fill");
-  if (raw === null || raw === undefined) {
+  const raw = data?.selector ?? null;
+  if (raw === null) {
     return null;
   }
   const selector = raw.trim();
@@ -162,7 +124,7 @@ export function getFillSelectorFromElement(element: Element, state: RuntimeState
 }
 
 export function getFillSelectorFromTarget(target: ParsedRequestTarget): string | null {
-  const raw = target.fillTarget;
+  const raw = target.fillTargetSelector;
   if (raw === null) {
     return null;
   }

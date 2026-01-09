@@ -1,12 +1,11 @@
 import { createRuntime, initHyPathParams } from "@hytde/runtime";
 import {
-  parseDocument,
+  parseDocumentToIr,
   parseHtml,
   parseSubtree,
   resolveImports
 } from "@hytde/parser";
 import {
-  countTableMarkers,
   ensureExtableStylesheet,
   ensureTableApiStub
 } from "./table-support";
@@ -42,18 +41,23 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   const mode = doc.querySelector('meta[name="hy-mode"]')?.getAttribute("content")?.trim();
 
   initHyPathParams(doc);
-  const runtime = createRuntime({ parseDocument, parseSubtree });
+  const runtime = createRuntime({
+    parseDocument: () => {
+      throw new Error("parseDocument is not available in IR runtime.");
+    },
+    parseSubtree
+  });
   const importLogs: HyLogEntry[] = [];
   const errors = await resolveImports(doc, {
     onLog: (entry) => {
       importLogs.push(entry);
     }
   });
-  const parsed = parseDocument(doc);
-  if (mode !== "disable" && countTableMarkers(doc) > 0) {
+  const ir = parseDocumentToIr(doc);
+  if (mode !== "disable" && ir.tables.length > 0) {
     ensureExtableStylesheet(doc);
   }
-  runtime.init(parsed);
+  runtime.init(doc, ir);
   if (errors.length > 0) {
     const hy = (doc.defaultView ?? globalThis).hy;
     if (hy && Array.isArray(hy.errors)) {
@@ -80,10 +84,10 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
 export const hy = {
   init,
   parseHtml,
-  parseDocument
+  parseDocumentToIr
 };
 
-export { parseHtml, parseDocument, parseSubtree };
+export { parseHtml, parseDocumentToIr, parseSubtree };
 
 const globalScope = typeof globalThis !== "undefined" ? globalThis : undefined;
 if (globalScope) {

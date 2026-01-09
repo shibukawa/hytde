@@ -26,6 +26,7 @@ export function getRuntimeState(
     existing.cascade = buildCascadeState(existing, parsed);
     existing.asyncUploads = new Map();
     existing.asyncUploadEntries = new Map();
+    existing.appendMarkedElements = new Set();
     existing.actionHandlers = {
       handleActionRequest,
       prefetchActionRequest
@@ -64,6 +65,7 @@ export function getRuntimeState(
     cloakApplied: false,
     appendStores: null,
     appendLogOnlyNew: false,
+    appendMarkedElements: new Set(),
     streamKeyCache: new Map(),
     sseSources: new Map(),
     pollingTimers: new Map(),

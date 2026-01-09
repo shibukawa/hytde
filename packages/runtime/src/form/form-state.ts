@@ -16,7 +16,7 @@ import type {
 const DEFAULT_AUTOSAVE_DELAY_MS = 500;
 
 export function setupFormStateHandlers(state: RuntimeState): void {
-  const forms = Array.from(state.doc.querySelectorAll<HTMLFormElement>("form"));
+  const forms = Array.from(state.doc.forms);
   for (const form of forms) {
     if (state.formStateContexts.has(form)) {
       continue;
@@ -140,9 +140,7 @@ export function disableFormControls(form: HTMLFormElement, state: RuntimeState):
   if (state.formDisableSnapshots.has(form)) {
     return;
   }
-  const controls = Array.from(
-    form.querySelectorAll<HTMLElement>("input, button, select, textarea, fieldset")
-  );
+  const controls = Array.from(form.elements).filter(isFormDisableControl);
   const snapshot: FormDisableSnapshot = {
     controls: controls.map((element) => ({
       element,
@@ -192,39 +190,28 @@ function resolveFormStateOwner(
   form: HTMLFormElement,
   state: RuntimeState
 ): { owner: HTMLElement; declaration: FormStateDeclaration } | null {
-  const formDeclaration = parseFormStateDeclaration(form, state);
-  if (formDeclaration) {
-    return { owner: form, declaration: formDeclaration };
-  }
-
-  const submitters = Array.from(form.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button, input")).filter(
-    (element) => isSubmitActionElement(element) && element.hasAttribute("hy-form-state")
-  );
-
-  if (submitters.length === 0) {
+  const candidates = state.parsed.formStateCandidates.filter((candidate) => candidate.form === form);
+  if (candidates.length === 0) {
     return null;
   }
-  if (submitters.length > 1) {
+  if (candidates.length > 1) {
     emitFormStateError(state, "Multiple submit action elements define hy-form-state; choose one owner.", {
       formId: form.id || undefined,
-      ownerIds: submitters.map((element) => element.id).filter(Boolean)
+      ownerIds: candidates.map((candidate) => candidate.owner.id).filter(Boolean)
     });
     return null;
   }
 
-  const owner = submitters[0];
-  const declaration = parseFormStateDeclaration(owner, state);
+  const candidate = candidates[0];
+  const owner = candidate.owner;
+  const declaration = parseFormStateDeclaration(candidate.raw, owner, state);
   if (!declaration) {
     return null;
   }
   return { owner, declaration };
 }
 
-function parseFormStateDeclaration(element: Element, state: RuntimeState): FormStateDeclaration | null {
-  const raw = element.getAttribute("hy-form-state");
-  if (raw === null) {
-    return null;
-  }
+function parseFormStateDeclaration(raw: string, element: Element, state: RuntimeState): FormStateDeclaration | null {
   if (raw.trim() === "") {
     emitFormStateError(state, "hy-form-state requires a declaration string.", {
       elementId: (element as HTMLElement).id || undefined
@@ -285,16 +272,6 @@ function parseFormStateDeclaration(element: Element, state: RuntimeState): FormS
   }
 
   return { mode, durationMs, raw };
-}
-
-function isSubmitActionElement(element: Element): element is HTMLButtonElement | HTMLInputElement {
-  if (element instanceof HTMLButtonElement) {
-    return element.type === "submit";
-  }
-  if (element instanceof HTMLInputElement) {
-    return element.type === "submit" || element.type === "image";
-  }
-  return false;
 }
 
 function formHasSubmitTarget(form: HTMLFormElement, state: RuntimeState): boolean {
@@ -508,7 +485,7 @@ function setupFormStateNavigationHandlers(state: RuntimeState): void {
       return;
     }
     const target = event.target instanceof Element ? event.target : null;
-    const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+    const anchor = findClosestAnchor(target);
     if (!anchor) {
       return;
     }
@@ -539,4 +516,25 @@ function emitFormStateError(state: RuntimeState, message: string, detail?: Recor
   });
   pushError(state, createHyError("syntax", message, detail));
   console.error("[hytde] form-state error", message, detail);
+}
+
+function isFormDisableControl(element: Element): element is HTMLElement {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLButtonElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLFieldSetElement
+  );
+}
+
+function findClosestAnchor(element: Element | null): HTMLAnchorElement | null {
+  let current: Element | null = element;
+  while (current) {
+    if (current instanceof HTMLAnchorElement && current.hasAttribute("href")) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
 }

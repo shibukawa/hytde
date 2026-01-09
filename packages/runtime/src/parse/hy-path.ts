@@ -3,7 +3,7 @@ import { isRelativePath, normalizePathPattern, stripQueryHash } from "../utils/p
 
 export function parseHyPathMeta(doc: Document): HyPathMeta {
   const template = parseHyPathTemplate(doc);
-  const modeMetas = Array.from(doc.querySelectorAll("meta[name=\"hy-path-mode\"]"));
+  const modeMetas = findMetaTags(doc, "hy-path-mode");
   let mode: HyPathMode = "hash";
   modeMetas.forEach((meta) => {
     const content = meta.getAttribute("content") ?? "";
@@ -17,7 +17,7 @@ export function parseHyPathMeta(doc: Document): HyPathMeta {
 }
 
 export function parseHyPathTemplate(doc: Document): string | null {
-  const meta = doc.querySelector("meta[name=\"hy-path\"]");
+  const meta = findMetaTags(doc, "hy-path")[0] ?? null;
   if (!meta) {
     return null;
   }
@@ -35,6 +35,11 @@ export function parseHyPathTemplate(doc: Document): string | null {
     return null;
   }
   return normalizePathPattern(stripQueryHash(template));
+}
+
+function findMetaTags(doc: Document, name: string): HTMLMetaElement[] {
+  const metas = Array.from(doc.getElementsByTagName("meta"));
+  return metas.filter((meta) => meta.getAttribute("name") === name);
 }
 
 export function parseHyPathMode(content: string): HyPathMode | null {

@@ -117,7 +117,7 @@ export function setupFillActionHandlers(state: RuntimeState, actions: ParsedFill
 
 function scheduleActionRequest(target: ParsedRequestTarget, state: RuntimeState): void {
   const element = target.element;
-  const debounceMs = getDebounceMsForElement(element);
+  const debounceMs = target.actionDebounceMs;
   if (!debounceMs) {
     void state.actionHandlers.handleActionRequest(target, state);
     return;
@@ -136,19 +136,4 @@ function scheduleActionRequest(target: ParsedRequestTarget, state: RuntimeState)
     void state.actionHandlers.handleActionRequest(target, state);
   }, debounceMs);
   state.actionDebounceTimers.set(element, timer);
-}
-
-function getDebounceMsForElement(element: Element): number | null {
-  const raw = element.getAttribute("hy-debounce");
-  if (raw === null) {
-    return null;
-  }
-  if (raw.trim() === "") {
-    return 200;
-  }
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return 200;
-  }
-  return parsed;
 }

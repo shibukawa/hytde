@@ -12,10 +12,9 @@ import { setupAutoSubmitHandlers } from "./form/auto-submit";
 import { setupHistoryHandlers, hasHistoryAutoSubmit, runHistoryAutoSubmits } from "./history/runtime";
 import { renderDocument } from "./render";
 import { handleRequest } from "./requests/runtime";
-import type {
-  ParsedDocument,
-  ParserAdapter
-} from "./types";
+import type { ParserAdapter } from "./types";
+import type { IrDocument } from "./ir";
+import { buildParsedDocumentFromIr } from "./ir";
 import type { RuntimeState } from "./state";
 
 export type {
@@ -45,6 +44,7 @@ export type {
   PluginWatchTarget,
   RuntimeGlobals
 } from "./types";
+export type { IrDocument } from "./ir";
 
 export { initHyPathParams };
 
@@ -64,13 +64,13 @@ if (globalScope) {
 }
 
 export interface Runtime {
-  init(parsed: ParsedDocument): void;
+  init(doc: Document, ir: IrDocument): void;
 }
 
 export function createRuntime(parser: ParserAdapter): Runtime {
   return {
-    init(parsed: ParsedDocument) {
-      const doc = parsed.doc;
+    init(doc: Document, ir: IrDocument) {
+      const parsed = buildParsedDocumentFromIr(doc, ir);
       const scope = doc.defaultView ?? globalThis;
       const globals = ensureGlobals(scope);
       ensureTableApi(scope);

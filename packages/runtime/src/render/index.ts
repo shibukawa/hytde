@@ -31,6 +31,7 @@ export function renderDocument(
   }
   state.appendStores = options?.appendStores ? new Set(options.appendStores) : null;
   state.appendLogOnlyNew = Boolean(options?.appendStores && options.appendStores.length > 0);
+  state.appendMarkedElements.clear();
 
   state.errorDedup.clear();
   emitLog(state, {
@@ -101,6 +102,7 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
       const item = items[index];
       const clone = template.template.cloneNode(true) as Element;
       clone.setAttribute(APPEND_MARK_ATTR, "true");
+      state.appendMarkedElements.add(clone);
       const nextScope = [...scope, { [template.varName]: item }];
       const parsedClone = state.parser.parseSubtree(clone);
       renderParsedSubtree(parsedClone, state, nextScope);
@@ -177,11 +179,6 @@ function restoreSelectSelection(select: HTMLSelectElement, snapshot: SelectSelec
 export function buildScopeStack(element: Element, state: RuntimeState): ScopeStack {
   void state;
   const scopes: ScopeStack = [];
-  const parent = element.closest("[hy-for]");
-  if (!parent) {
-    return scopes;
-  }
-
   // Loop scopes created via templates are injected during render and not stored on DOM.
   return scopes;
 }
@@ -265,7 +262,7 @@ function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: Scop
   for (const binding of parsed.textBindings) {
     const value = evaluateExpression(binding.expression, scope, state);
     if (state.appendLogOnlyNew) {
-      const inAppend = binding.element.closest(`[${APPEND_MARK_ATTR}]`);
+      const inAppend = hasAppendMarkerAncestor(binding.element);
       if (!inAppend) {
         binding.element.textContent = value == null ? "" : String(value);
         continue;
@@ -308,4 +305,15 @@ function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: Scop
       binding.element.removeAttribute(binding.attr);
     }
   }
+}
+
+function hasAppendMarkerAncestor(element: Element): boolean {
+  let current: Element | null = element;
+  while (current) {
+    if (current.hasAttribute(APPEND_MARK_ATTR)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
 }

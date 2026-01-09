@@ -1,4 +1,157 @@
 export type ExecutionMode = "production" | "mock" | "disable";
+export type NodeId = string;
+
+export interface IrBase {
+  executionMode: ExecutionMode;
+}
+
+export interface IrTextBinding {
+  nodeId: NodeId;
+  expression: string;
+}
+
+export interface IrAttrBinding {
+  nodeId: NodeId;
+  attr: string;
+  target: string;
+  template: string;
+}
+
+export interface IrForTemplate {
+  markerId: NodeId;
+  templateHtml: string;
+  varName: string;
+  selector: string;
+}
+
+export interface IrIfChainNode {
+  nodeId: NodeId;
+  kind: "if" | "else-if" | "else";
+  expression: string | null;
+}
+
+export interface IrIfChain {
+  anchorId: NodeId;
+  nodes: IrIfChainNode[];
+}
+
+export interface IrRequestTarget {
+  elementId: NodeId;
+  urlTemplate: string;
+  store: string | null;
+  unwrap: string | null;
+  method: string;
+  kind: "fetch" | "stream" | "sse" | "polling";
+  trigger: "startup" | "submit" | "action";
+  actionDebounceMs: number | null;
+  redirect: string | null;
+  formId: NodeId | null;
+  fillIntoIds: NodeId[];
+  fillTargetId: NodeId | null;
+  fillTargetSelector: string | null;
+  fillValue: string | null;
+  streamInitial: number;
+  streamTimeoutMs: number | null;
+  streamKey: string | null;
+  pollIntervalMs: number | null;
+  isForm: boolean;
+}
+
+export interface IrFillTarget {
+  formId: NodeId;
+  selector: string;
+}
+
+export interface IrFillAction {
+  elementId: NodeId;
+  targetId: NodeId | null;
+  selector: string;
+  value: string | null;
+  formId: NodeId | null;
+  command: string | null;
+  commandFor: string | null;
+}
+
+export interface IrHistoryForm {
+  formId: NodeId;
+  mode: "sync" | "sync-push" | "sync-replace";
+  paramsSource: "search" | "hash";
+  fieldNames: string[] | null;
+}
+
+export interface IrAutoSubmitForm {
+  formId: NodeId;
+  events: string[];
+  debounceMs: number;
+  composeMode: "end" | "blur";
+}
+
+export interface IrAsyncUploadForm {
+  formId: NodeId;
+  mode: "s3" | "simple";
+  uploaderUrl: string | null;
+  chunkSizeBytes: number;
+  afterSubmitAction: "clear" | "keep";
+  afterSubmitActionPresent: boolean;
+  redirectConflict: boolean;
+}
+
+export interface IrFormStateCandidate {
+  formId: NodeId;
+  ownerId: NodeId;
+  raw: string;
+}
+
+export interface IrTableColumn {
+  key: string;
+  type: "number" | "date" | "boolean" | "string";
+  header?: string;
+  width?: number;
+  format?: string;
+}
+
+export interface IrTableOptions {
+  renderMode?: "html" | "canvas" | "auto";
+  editMode?: "direct" | "commit" | "readonly";
+  lockMode?: "none" | "row";
+  langs?: string[];
+}
+
+export interface IrTableConfig {
+  tableId: string;
+  tableElementId: NodeId;
+  dataPath: string | null;
+  options: IrTableOptions;
+  columns: IrTableColumn[];
+  bindShortcut: boolean;
+}
+
+export interface IrTableDiagnostic {
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface IrDocument extends IrBase {
+  mockRules: MockRule[];
+  parseErrors: ParseError[];
+  handlesErrors: boolean;
+  hasErrorPopover: boolean;
+  textBindings: IrTextBinding[];
+  attrBindings: IrAttrBinding[];
+  forTemplates: IrForTemplate[];
+  ifChains: IrIfChain[];
+  requestTargets: IrRequestTarget[];
+  fillTargets: IrFillTarget[];
+  fillActions: IrFillAction[];
+  historyForms: IrHistoryForm[];
+  autoSubmitForms: IrAutoSubmitForm[];
+  asyncUploadForms: IrAsyncUploadForm[];
+  formStateCandidates: IrFormStateCandidate[];
+  tables: IrTableConfig[];
+  tableDiagnostics: IrTableDiagnostic[];
+  cloakElementIds: NodeId[];
+  dummyElementIds: NodeId[];
+}
 
 export interface MockRule {
   rawPattern: string;
@@ -10,7 +163,7 @@ export interface MockRule {
 }
 
 export interface ForTemplate {
-  marker: Comment;
+  marker: Element;
   template: Element;
   varName: string;
   selector: string;
@@ -56,10 +209,73 @@ export interface RequestTarget {
   pollIntervalMs: number | null;
   isForm: boolean;
   trigger: "startup" | "submit" | "action";
+  actionDebounceMs: number | null;
+  redirect: string | null;
   form: HTMLFormElement | null;
-  fillInto: string | null;
-  fillTarget: string | null;
+  fillIntoForms: HTMLFormElement[];
+  fillIntoSelector: string | null;
+  fillTargetElement: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+  fillTargetSelector: string | null;
   fillValue: string | null;
+}
+
+export interface HistoryFormConfig {
+  form: HTMLFormElement;
+  mode: "sync" | "sync-push" | "sync-replace";
+  paramsSource: "search" | "hash";
+  fieldNames: string[] | null;
+}
+
+export interface AutoSubmitFormConfig {
+  form: HTMLFormElement;
+  events: string[];
+  debounceMs: number;
+  composeMode: "end" | "blur";
+}
+
+export interface AsyncUploadFormConfig {
+  form: HTMLFormElement;
+  mode: "s3" | "simple";
+  uploaderUrl: string | null;
+  chunkSizeBytes: number;
+  afterSubmitAction: "clear" | "keep";
+  afterSubmitActionPresent: boolean;
+  redirectConflict: boolean;
+}
+
+export interface FormStateCandidate {
+  form: HTMLFormElement;
+  owner: HTMLElement;
+  raw: string;
+}
+
+export interface TableColumnConfig {
+  key: string;
+  type: "number" | "date" | "boolean" | "string";
+  header?: string;
+  width?: number;
+  format?: string;
+}
+
+export interface TableOptions {
+  renderMode?: "html" | "canvas" | "auto";
+  editMode?: "direct" | "commit" | "readonly";
+  lockMode?: "none" | "row";
+  langs?: string[];
+}
+
+export interface TableConfig {
+  table: HTMLTableElement;
+  tableId: string;
+  dataPath: string | null;
+  options: TableOptions;
+  columns: TableColumnConfig[];
+  bindShortcut: boolean;
+}
+
+export interface TableDiagnostic {
+  message: string;
+  detail?: Record<string, unknown>;
 }
 
 export interface TextBinding {
@@ -81,7 +297,7 @@ export interface IfChainNode {
 }
 
 export interface IfChain {
-  anchor: Comment;
+  anchor: Element;
   nodes: IfChainNode[];
 }
 
@@ -103,6 +319,12 @@ export interface ParsedDocument extends ParsedSubtree {
   parseErrors: ParseError[];
   requestTargets: RequestTarget[];
   importTargets: ImportTarget[];
+  historyForms: HistoryFormConfig[];
+  autoSubmitForms: AutoSubmitFormConfig[];
+  asyncUploadForms: AsyncUploadFormConfig[];
+  formStateCandidates: FormStateCandidate[];
+  tables: TableConfig[];
+  tableDiagnostics: TableDiagnostic[];
   handlesErrors: boolean;
   hasErrorPopover: boolean;
 }
@@ -115,21 +337,144 @@ export interface ParseError {
 export function parseDocument(doc: Document): ParsedDocument {
   const parseErrors: ParseError[] = [];
   const { handlesErrors, hasErrorPopover } = detectErrorHandling(doc);
+  const requestTargets = parseRequestTargets(doc, parseErrors);
+  const importTargets = parseImportTargets(doc);
+  const historyForms = parseHistoryForms(doc, parseErrors);
+  const autoSubmitForms = parseAutoSubmitForms(doc, parseErrors);
+  const asyncUploadForms = parseAsyncUploadForms(doc, parseErrors);
+  const formStateCandidates = parseFormStateCandidates(doc);
+  const tableParseResult = parseTables(doc);
+  stripRedirectAttributes(doc);
   return {
     doc,
     executionMode: getExecutionMode(doc),
     mockRules: parseMockRules(doc),
     parseErrors,
-    requestTargets: parseRequestTargets(doc, parseErrors),
-    importTargets: parseImportTargets(doc),
+    requestTargets,
+    importTargets,
+    historyForms,
+    autoSubmitForms,
+    asyncUploadForms,
+    formStateCandidates,
+    tables: tableParseResult.tables,
+    tableDiagnostics: tableParseResult.diagnostics,
     handlesErrors,
     hasErrorPopover,
     ...parseSubtree(doc, parseErrors)
   };
 }
 
+export function parseDocumentToIr(doc: Document): IrDocument {
+  const parsed = parseDocument(doc);
+  const resolveId = createIdResolver(doc);
+
+  return {
+    executionMode: parsed.executionMode,
+    mockRules: parsed.mockRules,
+    parseErrors: parsed.parseErrors,
+    handlesErrors: parsed.handlesErrors,
+    hasErrorPopover: parsed.hasErrorPopover,
+    textBindings: parsed.textBindings.map((binding) => ({
+      nodeId: resolveId(binding.element),
+      expression: binding.expression
+    })),
+    attrBindings: parsed.attrBindings.map((binding) => ({
+      nodeId: resolveId(binding.element),
+      attr: binding.attr,
+      target: binding.target,
+      template: binding.template
+    })),
+    forTemplates: parsed.forTemplates.map((template) => ({
+      markerId: resolveId(template.marker),
+      templateHtml: template.template.outerHTML,
+      varName: template.varName,
+      selector: template.selector
+    })),
+    ifChains: parsed.ifChains.map((chain) => ({
+      anchorId: resolveId(chain.anchor),
+      nodes: chain.nodes.map((node) => ({
+        nodeId: resolveId(node.node),
+        kind: node.kind,
+        expression: node.expression ?? null
+      }))
+    })),
+    requestTargets: parsed.requestTargets.map((target) => ({
+      elementId: resolveId(target.element),
+      urlTemplate: target.urlTemplate,
+      store: target.store,
+      unwrap: target.unwrap,
+      method: target.method,
+      kind: target.kind,
+      trigger: target.trigger,
+      actionDebounceMs: target.actionDebounceMs,
+      redirect: target.redirect,
+      formId: target.form ? resolveId(target.form) : null,
+      fillIntoIds: target.fillIntoForms.map((form) => resolveId(form)),
+      fillTargetId: target.fillTargetElement ? resolveId(target.fillTargetElement) : null,
+      fillTargetSelector: target.fillTargetSelector,
+      fillValue: target.fillValue,
+      streamInitial: target.streamInitial,
+      streamTimeoutMs: target.streamTimeoutMs,
+      streamKey: target.streamKey,
+      pollIntervalMs: target.pollIntervalMs,
+      isForm: target.isForm
+    })),
+    fillTargets: parsed.fillTargets.map((target) => ({
+      formId: resolveId(target.form),
+      selector: target.selector
+    })),
+    fillActions: parsed.fillActions.map((action) => ({
+      elementId: resolveId(action.element),
+      targetId: action.target ? resolveId(action.target) : null,
+      selector: action.selector,
+      value: action.value,
+      formId: action.form ? resolveId(action.form) : null,
+      command: action.command,
+      commandFor: action.commandFor
+    })),
+    historyForms: parsed.historyForms.map((entry) => ({
+      formId: resolveId(entry.form),
+      mode: entry.mode,
+      paramsSource: entry.paramsSource,
+      fieldNames: entry.fieldNames
+    })),
+    autoSubmitForms: parsed.autoSubmitForms.map((entry) => ({
+      formId: resolveId(entry.form),
+      events: entry.events,
+      debounceMs: entry.debounceMs,
+      composeMode: entry.composeMode
+    })),
+    asyncUploadForms: parsed.asyncUploadForms.map((entry) => ({
+      formId: resolveId(entry.form),
+      mode: entry.mode,
+      uploaderUrl: entry.uploaderUrl,
+      chunkSizeBytes: entry.chunkSizeBytes,
+      afterSubmitAction: entry.afterSubmitAction,
+      afterSubmitActionPresent: entry.afterSubmitActionPresent,
+      redirectConflict: entry.redirectConflict
+    })),
+    formStateCandidates: parsed.formStateCandidates.map((candidate) => ({
+      formId: resolveId(candidate.form),
+      ownerId: resolveId(candidate.owner),
+      raw: candidate.raw
+    })),
+    tables: parsed.tables.map((table) => ({
+      tableId: table.tableId,
+      tableElementId: resolveId(table.table),
+      dataPath: table.dataPath,
+      options: table.options,
+      columns: table.columns,
+      bindShortcut: table.bindShortcut
+    })),
+    tableDiagnostics: parsed.tableDiagnostics,
+    cloakElementIds: parsed.cloakElements.map((element) => resolveId(element)),
+    dummyElementIds: []
+  };
+}
+
 export function parseSubtree(root: ParentNode, parseErrors: ParseError[] = []): ParsedSubtree {
-  const dummyElements = selectWithRoot(root, "[hy-dummy]");
+  removeDummyElements(root);
+  const dummyElements: Element[] = [];
   const cloakElements = selectWithRoot(root, "[hy-cloak]");
   const forTemplates = parseForTemplates(root, parseErrors);
   const ifChains = parseIfChains(root);
@@ -137,7 +482,7 @@ export function parseSubtree(root: ParentNode, parseErrors: ParseError[] = []): 
   const attrBindings = parseAttrBindings(root);
   const hrefBindings = parseHrefBindings(root);
   const fillTargets = parseFillTargets(root);
-  const fillActions = parseFillActions(root);
+  const fillActions = parseFillActions(root, parseErrors);
 
   return {
     dummyElements,
@@ -163,6 +508,7 @@ export interface FillAction {
   form: HTMLFormElement | null;
   command: string | null;
   commandFor: string | null;
+  target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
 }
 
 export interface ParsedHtml {
@@ -323,7 +669,7 @@ function parseRequestTargets(doc: Document, parseErrors: ParseError[]): RequestT
     const storeRaw = element.getAttribute("hy-store");
     let store = storeRaw?.trim() ?? null;
     const unwrap = element.getAttribute("hy-unwrap");
-    const fillTarget = element.getAttribute("hy-fill");
+    const fillTargetAttr = element.getAttribute("hy-fill");
     const fillValue = element.getAttribute("hy-value");
     element.removeAttribute(methodAttr.attr);
     element.removeAttribute("hy-store");
@@ -364,6 +710,12 @@ function parseRequestTargets(doc: Document, parseErrors: ParseError[]): RequestT
       : isSubmitter || isAction
         ? getSubmitterForm(element as HTMLButtonElement | HTMLInputElement)
         : null;
+    const actionDebounceMs = trigger === "action" ? parseActionDebounce(element.getAttribute("hy-debounce")) : null;
+    if (trigger === "action") {
+      element.removeAttribute("hy-debounce");
+    }
+    const redirect = resolveRedirectTarget(element, form);
+    const resolvedFillTarget = resolveFillTargetElement(element, form, fillTargetAttr, parseErrors);
     targets.push({
       element,
       urlTemplate,
@@ -377,9 +729,13 @@ function parseRequestTargets(doc: Document, parseErrors: ParseError[]): RequestT
       pollIntervalMs: null,
       isForm,
       trigger,
+      actionDebounceMs,
+      redirect,
       form,
-      fillInto: null,
-      fillTarget,
+      fillIntoForms: [],
+      fillIntoSelector: null,
+      fillTargetElement: resolvedFillTarget.target,
+      fillTargetSelector: resolvedFillTarget.selector,
       fillValue
     });
   }
@@ -436,6 +792,34 @@ function isActionElement(
   );
 }
 
+function parseActionDebounce(raw: string | null): number | null {
+  if (raw === null) {
+    return null;
+  }
+  if (raw.trim() === "") {
+    return 200;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 200;
+  }
+  return parsed;
+}
+
+function resolveRedirectTarget(element: Element, form: HTMLFormElement | null): string | null {
+  const direct = element.getAttribute("hy-redirect");
+  if (direct && direct !== "") {
+    return direct;
+  }
+  if (form) {
+    const formRedirect = form.getAttribute("hy-redirect");
+    if (formRedirect && formRedirect !== "") {
+      return formRedirect;
+    }
+  }
+  return null;
+}
+
 function parseGetTagTargets(doc: Document, parseErrors: ParseError[]): RequestTarget[] {
   const elements = Array.from(doc.querySelectorAll("hy-get"));
   const targets: RequestTarget[] = [];
@@ -445,7 +829,7 @@ function parseGetTagTargets(doc: Document, parseErrors: ParseError[]): RequestTa
     const storeRaw = element.getAttribute("store");
     let store = storeRaw?.trim() ?? null;
     const unwrap = element.getAttribute("unwrap");
-    const fillInto = element.getAttribute("fill-into");
+    const fillIntoAttr = element.getAttribute("fill-into");
     const parent = element.parentElement;
     element.remove();
     if (!src || !parent) {
@@ -466,6 +850,7 @@ function parseGetTagTargets(doc: Document, parseErrors: ParseError[]): RequestTa
       });
     }
 
+    const resolvedFillInto = resolveFillIntoForms(doc, fillIntoAttr, parseErrors);
     targets.push({
       element: parent,
       urlTemplate: src,
@@ -479,9 +864,13 @@ function parseGetTagTargets(doc: Document, parseErrors: ParseError[]): RequestTa
       pollIntervalMs: null,
       isForm: false,
       trigger: "startup",
+      actionDebounceMs: null,
+      redirect: null,
       form: null,
-      fillInto,
-      fillTarget: null,
+      fillIntoForms: resolvedFillInto.forms,
+      fillIntoSelector: resolvedFillInto.selector,
+      fillTargetElement: null,
+      fillTargetSelector: null,
       fillValue: null
     });
   }
@@ -534,9 +923,13 @@ function parseStreamTargets(doc: Document, parseErrors: ParseError[]): RequestTa
       pollIntervalMs: null,
       isForm: false,
       trigger: "startup",
+      actionDebounceMs: null,
+      redirect: null,
       form: null,
-      fillInto: null,
-      fillTarget: null,
+      fillIntoForms: [],
+      fillIntoSelector: null,
+      fillTargetElement: null,
+      fillTargetSelector: null,
       fillValue: null
     });
   }
@@ -589,9 +982,13 @@ function parseSseTargets(doc: Document, parseErrors: ParseError[]): RequestTarge
       pollIntervalMs: null,
       isForm: false,
       trigger: "startup",
+      actionDebounceMs: null,
+      redirect: null,
       form: null,
-      fillInto: null,
-      fillTarget: null,
+      fillIntoForms: [],
+      fillIntoSelector: null,
+      fillTargetElement: null,
+      fillTargetSelector: null,
       fillValue: null
     });
   }
@@ -674,9 +1071,13 @@ function parsePollingTargets(doc: Document, parseErrors: ParseError[]): RequestT
       pollIntervalMs,
       isForm: false,
       trigger: "startup",
+      actionDebounceMs: null,
+      redirect: null,
       form: null,
-      fillInto: null,
-      fillTarget: null,
+      fillIntoForms: [],
+      fillIntoSelector: null,
+      fillTargetElement: null,
+      fillTargetSelector: null,
       fillValue: null
     });
   }
@@ -694,6 +1095,608 @@ function parsePollingInterval(element: Element): number | null {
     return parsed;
   }
   return null;
+}
+
+function parseHistoryForms(doc: Document, _parseErrors: ParseError[]): HistoryFormConfig[] {
+  const forms = Array.from(doc.getElementsByTagName("form")).filter((form) => form.hasAttribute("hy-history"));
+  const configs: HistoryFormConfig[] = [];
+
+  for (const form of forms) {
+    const rawMode = form.getAttribute("hy-history")?.trim() ?? "";
+    const mode = parseHistoryMode(rawMode);
+    if (!mode) {
+      continue;
+    }
+    const paramsSource = form.getAttribute("hy-history-params") === "hash" ? "hash" : "search";
+    const fieldNames = parseHistoryFieldNames(form.getAttribute("hy-history-fields"));
+    form.removeAttribute("hy-history");
+    form.removeAttribute("hy-history-params");
+    form.removeAttribute("hy-history-fields");
+    configs.push({ form, mode, paramsSource, fieldNames });
+  }
+
+  return configs;
+}
+
+function parseHistoryMode(raw: string): "sync" | "sync-push" | "sync-replace" | null {
+  if (!raw) {
+    return null;
+  }
+  if (raw === "sync" || raw === "sync-push" || raw === "sync-replace") {
+    return raw;
+  }
+  if (raw === "push") {
+    return "sync-push";
+  }
+  if (raw === "replace") {
+    return "sync-replace";
+  }
+  return null;
+}
+
+function parseHistoryFieldNames(raw: string | null): string[] | null {
+  if (!raw) {
+    return null;
+  }
+  const names = raw.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+  return names.length > 0 ? names : null;
+}
+
+function parseAutoSubmitForms(doc: Document, _parseErrors: ParseError[]): AutoSubmitFormConfig[] {
+  const forms = Array.from(doc.getElementsByTagName("form")).filter((form) => form.hasAttribute("hy-submit-on"));
+  const configs: AutoSubmitFormConfig[] = [];
+
+  for (const form of forms) {
+    const rawEvents = form.getAttribute("hy-submit-on");
+    if (rawEvents == null) {
+      continue;
+    }
+    const events = parseAutoSubmitEvents(rawEvents);
+    if (events.length === 0) {
+      continue;
+    }
+    const debounceMs = parseAutoSubmitDebounce(form.getAttribute("hy-debounce"));
+    const composeMode = form.getAttribute("hy-submit-compose") === "blur" ? "blur" : "end";
+    form.removeAttribute("hy-submit-on");
+    form.removeAttribute("hy-debounce");
+    form.removeAttribute("hy-submit-compose");
+    configs.push({ form, events, debounceMs, composeMode });
+  }
+
+  return configs;
+}
+
+function parseAutoSubmitEvents(raw: string): string[] {
+  const tokens = raw.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+  return tokens.length > 0 ? tokens : ["change"];
+}
+
+function parseAutoSubmitDebounce(raw: string | null): number {
+  if (!raw) {
+    return 200;
+  }
+  if (raw.trim() === "") {
+    return 200;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 200;
+  }
+  return parsed;
+}
+
+function parseAsyncUploadForms(doc: Document, parseErrors: ParseError[]): AsyncUploadFormConfig[] {
+  const forms = Array.from(doc.getElementsByTagName("form")).filter((form) => form.hasAttribute("hy-async-upload"));
+  const configs: AsyncUploadFormConfig[] = [];
+
+  for (const form of forms) {
+    const rawModeAttr = form.getAttribute("hy-async-upload");
+    const rawMode = rawModeAttr ? rawModeAttr.trim() : "";
+    const mode = rawMode === "" ? "simple" : rawMode;
+    if (mode !== "s3" && mode !== "simple") {
+      parseErrors.push({
+        message: "hy-async-upload must be \"s3\" or \"simple\".",
+        detail: { formId: form.id || undefined, value: rawModeAttr ?? "" }
+      });
+      continue;
+    }
+    const uploaderRaw = form.getAttribute("hy-uploader-url")?.trim() ?? "";
+    let uploaderUrl = uploaderRaw || null;
+    if (!uploaderUrl && mode === "simple") {
+      const action = form.getAttribute("action")?.trim() ?? form.action?.trim() ?? "";
+      uploaderUrl = action || null;
+    }
+    if (!uploaderUrl) {
+      parseErrors.push({
+        message: mode === "s3" ? "hy-uploader-url is required for async upload." : "Async upload requires uploader URL or form action.",
+        detail: { formId: form.id || undefined, mode }
+      });
+      continue;
+    }
+    const chunkSizeBytes = parseAsyncUploadChunkSize(form, parseErrors);
+    const afterSubmitAttrRaw = form.getAttribute("hy-after-submit-action");
+    const afterSubmitAttrPresent = afterSubmitAttrRaw !== null;
+    const afterSubmitAttr = afterSubmitAttrRaw?.trim().toLowerCase() ?? "";
+    let afterSubmitAction: "keep" | "clear" = "keep";
+    if (afterSubmitAttrPresent) {
+      if (afterSubmitAttr === "clear") {
+        afterSubmitAction = "clear";
+      } else if (afterSubmitAttr === "keep" || afterSubmitAttr === "") {
+        afterSubmitAction = "keep";
+      } else {
+        parseErrors.push({
+          message: "hy-after-submit-action must be \"clear\" or \"keep\".",
+          detail: { formId: form.id || undefined, value: afterSubmitAttrRaw ?? "" }
+        });
+      }
+    }
+    const hasRedirectAttr = Boolean(form.getAttribute("hy-redirect")?.trim());
+    const redirectConflict = hasRedirectAttr && afterSubmitAttrPresent;
+    if (redirectConflict) {
+      parseErrors.push({
+        message: "hy-redirect and hy-after-submit-action cannot be used together.",
+        detail: { formId: form.id || undefined }
+      });
+    }
+
+    form.removeAttribute("hy-async-upload");
+    form.removeAttribute("hy-uploader-url");
+    form.removeAttribute("hy-file-chunksize");
+    form.removeAttribute("hy-after-submit-action");
+
+    configs.push({
+      form,
+      mode,
+      uploaderUrl,
+      chunkSizeBytes,
+      afterSubmitAction,
+      afterSubmitActionPresent: afterSubmitAttrPresent,
+      redirectConflict
+    });
+  }
+
+  return configs;
+}
+
+function parseFormStateCandidates(doc: Document): FormStateCandidate[] {
+  const formElements = Array.from(doc.querySelectorAll("form[hy-form-state]")) as HTMLFormElement[];
+  const elements = Array.from(doc.querySelectorAll("[hy-form-state]"));
+  const candidates: FormStateCandidate[] = [];
+  const formOwners = new Set<HTMLFormElement>();
+  for (const form of formElements) {
+    const raw = form.getAttribute("hy-form-state");
+    form.removeAttribute("hy-form-state");
+    if (raw === null) {
+      continue;
+    }
+    formOwners.add(form);
+    candidates.push({ form, owner: form, raw });
+  }
+  for (const element of elements) {
+    if (element instanceof HTMLFormElement) {
+      continue;
+    }
+    const raw = element.getAttribute("hy-form-state");
+    element.removeAttribute("hy-form-state");
+    if (raw === null) {
+      continue;
+    }
+    if (!isFormStateSubmitter(element)) {
+      continue;
+    }
+    const form = getSubmitterForm(element);
+    if (!form) {
+      continue;
+    }
+    if (formOwners.has(form)) {
+      continue;
+    }
+    candidates.push({ form, owner: element, raw });
+  }
+  return candidates;
+}
+
+function isFormStateSubmitter(element: Element): element is HTMLButtonElement | HTMLInputElement {
+  if (element instanceof HTMLButtonElement) {
+    return element.type === "submit";
+  }
+  if (element instanceof HTMLInputElement) {
+    return element.type === "submit" || element.type === "image";
+  }
+  return false;
+}
+
+function parseTables(doc: Document): { tables: TableConfig[]; diagnostics: TableDiagnostic[] } {
+  const diagnostics: TableDiagnostic[] = [];
+  const tables = Array.from(doc.getElementsByTagName("table")).filter(
+    (table): table is HTMLTableElement => table instanceof HTMLTableElement && table.hasAttribute("hy-table-data")
+  );
+  const tableIdGroups = new Map<string, HTMLTableElement[]>();
+
+  for (const table of tables) {
+    const rawId = table.getAttribute("hy-table-data") ?? "";
+    const tableId = rawId.trim();
+    table.removeAttribute("hy-table-data");
+    if (!tableId) {
+      pushTableDiagnostic(diagnostics, "hy-table-data is required for table enhancement.", {
+        attribute: "hy-table-data",
+        selector: buildTableSelector(rawId)
+      });
+      continue;
+    }
+    const list = tableIdGroups.get(tableId);
+    if (list) {
+      list.push(table);
+    } else {
+      tableIdGroups.set(tableId, [table]);
+    }
+  }
+
+  const configs: TableConfig[] = [];
+  for (const [tableId, group] of tableIdGroups) {
+    if (group.length > 1) {
+      for (const table of group) {
+        pushTableDiagnostic(diagnostics, `Duplicate hy-table-data value "${tableId}" detected.`, {
+          attribute: "hy-table-data",
+          selector: buildTableSelector(tableId)
+        });
+      }
+      continue;
+    }
+    const table = group[0];
+    const headerRow = findHeaderRow(table);
+    if (!headerRow) {
+      pushTableDiagnostic(diagnostics, "Table header row (<thead><th>) is required for extable enhancement.", {
+        attribute: "hy-table-data",
+        selector: buildTableSelector(tableId)
+      });
+      continue;
+    }
+    const columns = parseColumns(tableId, headerRow, diagnostics);
+    if (columns.length === 0) {
+      pushTableDiagnostic(diagnostics, "No valid columns were found for table enhancement.", {
+        attribute: "hy-column",
+        selector: buildTableSelector(tableId)
+      });
+      continue;
+    }
+    const optionsResult = parseTableOptions(tableId, table, diagnostics);
+    configs.push({
+      table,
+      tableId,
+      dataPath: tableId.trim() || null,
+      options: optionsResult.options,
+      columns,
+      bindShortcut: optionsResult.bindShortcut
+    });
+  }
+
+  return { tables: configs, diagnostics };
+}
+
+function findHeaderRow(table: HTMLTableElement): HTMLTableRowElement | null {
+  const thead = table.tHead;
+  if (!thead) {
+    return null;
+  }
+  const rows = Array.from(thead.rows);
+  for (const row of rows) {
+    const hasTh = Array.from(row.children).some((child) => child.tagName === "TH");
+    if (hasTh) {
+      return row as HTMLTableRowElement;
+    }
+  }
+  return null;
+}
+
+function parseColumns(tableId: string, row: HTMLTableRowElement, diagnostics: TableDiagnostic[]): TableColumnConfig[] {
+  const columns: TableColumnConfig[] = [];
+  const cells = Array.from(row.children).filter((child) => child.tagName === "TH") as HTMLTableCellElement[];
+  for (const cell of cells) {
+    const columnDefinition = parseColumnDefinition(tableId, cell, diagnostics);
+    if (!columnDefinition) {
+      continue;
+    }
+    columns.push(columnDefinition);
+  }
+  return columns;
+}
+
+function parseColumnDefinition(
+  tableId: string,
+  cell: HTMLTableCellElement,
+  diagnostics: TableDiagnostic[]
+): TableColumnConfig | null {
+  const columnAttr = cell.getAttribute("hy-column") ?? "";
+  cell.removeAttribute("hy-column");
+  const declarations = parseDeclarationList(columnAttr);
+  const key = declarations.find((entry) => entry.key === "key")?.value ?? "";
+  if (!key) {
+    pushTableDiagnostic(diagnostics, "hy-column requires a key entry.", {
+      attribute: "hy-column",
+      selector: buildTableSelector(tableId),
+      context: cell.textContent ? cell.textContent.trim() : ""
+    });
+    return null;
+  }
+
+  const typeValue = declarations.find((entry) => entry.key === "type")?.value;
+  const type = parseColumnType(typeValue ? typeValue.trim() : "");
+  const format = declarations.find((entry) => entry.key === "format")?.value;
+  const header = (cell.textContent ?? "").trim();
+  const width = resolveWidth(cell);
+
+  return {
+    key,
+    type,
+    header: header || undefined,
+    width,
+    format: format ? format.trim() : undefined
+  };
+}
+
+function parseColumnType(typeValue: string): TableColumnConfig["type"] {
+  switch (typeValue) {
+    case "number":
+    case "date":
+    case "boolean":
+    case "string":
+      return typeValue;
+    default:
+      return "string";
+  }
+}
+
+function resolveWidth(cell: HTMLTableCellElement): number | undefined {
+  const styleAttr = cell.getAttribute("style") ?? "";
+  const declarations = parseDeclarationList(styleAttr);
+  const styleWidth = declarations.find((entry) => entry.key === "width")?.value;
+  const widthAttr = cell.getAttribute("width")?.trim();
+  const rawWidth = styleWidth || widthAttr;
+  if (!rawWidth) {
+    return undefined;
+  }
+  const parsed = Number.parseFloat(rawWidth);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseTableOptions(
+  tableId: string,
+  table: HTMLTableElement,
+  diagnostics: TableDiagnostic[]
+): { options: TableOptions; bindShortcut: boolean } {
+  const options: TableOptions = {};
+  let bindShortcut = false;
+  const raw = table.getAttribute("hy-table-option") ?? "";
+  table.removeAttribute("hy-table-option");
+  const declarations = parseDeclarationList(raw);
+  for (const entry of declarations) {
+    const key = entry.key.toLowerCase();
+    if (key === "render-mode") {
+      const renderMode = parseRenderMode(entry.value);
+      if (renderMode) {
+        options.renderMode = renderMode;
+      } else {
+        pushTableDiagnostic(diagnostics, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
+          attribute: "hy-table-option",
+          selector: buildTableSelector(tableId),
+          context: entry.key
+        });
+      }
+      continue;
+    }
+    if (key === "edit-mode") {
+      const editMode = parseEditMode(entry.value);
+      if (editMode) {
+        options.editMode = editMode;
+      } else {
+        pushTableDiagnostic(diagnostics, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
+          attribute: "hy-table-option",
+          selector: buildTableSelector(tableId),
+          context: entry.key
+        });
+      }
+      continue;
+    }
+    if (key === "lock-mode") {
+      const lockMode = parseLockMode(entry.value);
+      if (lockMode) {
+        options.lockMode = lockMode;
+      } else {
+        pushTableDiagnostic(diagnostics, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
+          attribute: "hy-table-option",
+          selector: buildTableSelector(tableId),
+          context: entry.key
+        });
+      }
+      continue;
+    }
+    if (key === "lang") {
+      const langs = entry.value.split(/\s+/).filter(Boolean);
+      if (langs.length > 0) {
+        options.langs = langs;
+      }
+      continue;
+    }
+    if (key === "bind-shortcut") {
+      const parsed = parseBool(entry.value);
+      if (parsed == null) {
+        pushTableDiagnostic(diagnostics, `Invalid hy-table-option value "${entry.value}" for "${entry.key}".`, {
+          attribute: "hy-table-option",
+          selector: buildTableSelector(tableId),
+          context: entry.key
+        });
+      } else {
+        bindShortcut = parsed;
+      }
+      continue;
+    }
+    if (key === "default-class" || key === "default-style") {
+      continue;
+    }
+
+    pushTableDiagnostic(diagnostics, `Unknown hy-table-option key "${entry.key}".`, {
+      attribute: "hy-table-option",
+      selector: buildTableSelector(tableId),
+      context: entry.key
+    });
+  }
+  return { options, bindShortcut };
+}
+
+function parseRenderMode(value: string): TableOptions["renderMode"] {
+  switch (value.trim().toLowerCase()) {
+    case "html":
+    case "canvas":
+    case "auto":
+      return value.trim().toLowerCase() as TableOptions["renderMode"];
+    default:
+      return undefined;
+  }
+}
+
+function parseEditMode(value: string): TableOptions["editMode"] {
+  switch (value.trim().toLowerCase()) {
+    case "direct":
+    case "commit":
+    case "readonly":
+      return value.trim().toLowerCase() as TableOptions["editMode"];
+    default:
+      return undefined;
+  }
+}
+
+function parseLockMode(value: string): TableOptions["lockMode"] {
+  switch (value.trim().toLowerCase()) {
+    case "none":
+    case "row":
+      return value.trim().toLowerCase() as TableOptions["lockMode"];
+    default:
+      return undefined;
+  }
+}
+
+function parseBool(value: string): boolean | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  return null;
+}
+
+function buildTableSelector(tableId: string): string {
+  const escaped = tableId.replace(/"/g, "\\\"");
+  return `table[hy-table-data="${escaped}"]`;
+}
+
+function pushTableDiagnostic(
+  diagnostics: TableDiagnostic[],
+  message: string,
+  detail?: TableDiagnostic["detail"]
+): void {
+  diagnostics.push({ message, detail });
+}
+
+function parseDeclarationList(input: string): Array<{ key: string; value: string }> {
+  const entries: Array<{ key: string; value: string }> = [];
+  let key = "";
+  let value = "";
+  let mode: "key" | "value" = "key";
+  let quote: "\"" | "'" | null = null;
+  let escaped = false;
+
+  const flush = () => {
+    const trimmedKey = key.trim();
+    if (trimmedKey) {
+      entries.push({ key: trimmedKey, value: value.trim() });
+    }
+    key = "";
+    value = "";
+    mode = "key";
+  };
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (escaped) {
+      if (mode === "key") {
+        key += char;
+      } else {
+        value += char;
+      }
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else if (mode === "key") {
+        key += char;
+      } else {
+        value += char;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === ":" && mode === "key") {
+      mode = "value";
+      continue;
+    }
+
+    if (char === ";") {
+      flush();
+      continue;
+    }
+
+    if (mode === "key") {
+      key += char;
+    } else {
+      value += char;
+    }
+  }
+
+  flush();
+  return entries;
+}
+
+function stripRedirectAttributes(doc: Document): void {
+  const elements = Array.from(doc.querySelectorAll("[hy-redirect]"));
+  for (const element of elements) {
+    element.removeAttribute("hy-redirect");
+  }
+}
+
+const ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB = 10;
+const ASYNC_UPLOAD_MIN_CHUNK_SIZE_MIB = 5;
+
+function parseAsyncUploadChunkSize(form: HTMLFormElement, parseErrors: ParseError[]): number {
+  const raw = form.getAttribute("hy-file-chunksize");
+  if (raw == null || raw.trim() === "") {
+    return ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB * 1024 * 1024;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    parseErrors.push({
+      message: "hy-file-chunksize must be a positive number.",
+      detail: { formId: form.id || undefined, value: raw }
+    });
+    return ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB * 1024 * 1024;
+  }
+  const normalized = Math.max(parsed, ASYNC_UPLOAD_MIN_CHUNK_SIZE_MIB);
+  return normalized * 1024 * 1024;
 }
 
 export function parseImportTargets(root: ParentNode): ImportTarget[] {
@@ -927,7 +1930,7 @@ function parseForTemplates(root: ParentNode, parseErrors: ParseError[]): ForTemp
       continue;
     }
 
-    const marker = doc.createComment("hy-for");
+    const marker = createAnchorElement(doc, "for");
     const template = element.cloneNode(true) as Element;
     template.removeAttribute("hy-for");
 
@@ -1093,7 +2096,7 @@ function parseIfChains(root: ParentNode): IfChain[] {
     if (!parent) {
       continue;
     }
-    const anchor = doc.createComment("hy-if");
+    const anchor = createAnchorElement(doc, "if");
     parent.insertBefore(anchor, element);
     const nodes = chain.map((node) => {
       let kind: "if" | "else-if" | "else" = "else";
@@ -1189,7 +2192,7 @@ function parseFillTargets(root: ParentNode): FillTarget[] {
   return targets;
 }
 
-function parseFillActions(root: ParentNode): FillAction[] {
+function parseFillActions(root: ParentNode, parseErrors: ParseError[]): FillAction[] {
   const elements = selectWithRoot(root, "[hy-fill]");
   const actions: FillAction[] = [];
 
@@ -1209,17 +2212,163 @@ function parseFillActions(root: ParentNode): FillAction[] {
       continue;
     }
     const form = element.closest("form");
+    const resolved = resolveFillTargetElement(
+      element,
+      form instanceof HTMLFormElement ? form : null,
+      selector,
+      parseErrors
+    );
+    if (!resolved.target) {
+      continue;
+    }
     actions.push({
       element,
-      selector,
+      selector: resolved.selector ?? selector,
       value,
       form: form instanceof HTMLFormElement ? form : null,
       command,
-      commandFor
+      commandFor,
+      target: resolved.target
     });
   }
 
   return actions;
+}
+
+function resolveFillTargetElement(
+  element: Element,
+  form: HTMLFormElement | null,
+  selectorRaw: string | null,
+  parseErrors: ParseError[]
+): { target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null; selector: string | null } {
+  if (selectorRaw == null) {
+    return { target: null, selector: null };
+  }
+  const selector = selectorRaw.trim();
+  if (!selector) {
+    parseErrors.push({
+      message: "hy-fill requires a non-empty selector.",
+      detail: { selector: selectorRaw }
+    });
+    return { target: null, selector };
+  }
+  const root: ParentNode | null = form ?? element.ownerDocument ?? (element instanceof Document ? element : null);
+  if (!root) {
+    return { target: null, selector };
+  }
+  let matches: Element[];
+  try {
+    matches = Array.from(root.querySelectorAll(selector));
+  } catch (error) {
+    parseErrors.push({
+      message: "hy-fill selector is invalid.",
+      detail: { selector, error: error instanceof Error ? error.message : String(error) }
+    });
+    return { target: null, selector };
+  }
+  const controls = matches.filter(isFillControlElement);
+  if (controls.length === 0) {
+    parseErrors.push({
+      message: "hy-fill selector did not match any control.",
+      detail: { selector }
+    });
+    return { target: null, selector };
+  }
+  if (controls.length > 1) {
+    parseErrors.push({
+      message: "hy-fill selector matched multiple controls.",
+      detail: { selector }
+    });
+    return { target: null, selector };
+  }
+  return { target: controls[0], selector };
+}
+
+function resolveFillIntoForms(
+  doc: Document,
+  selectorRaw: string | null,
+  parseErrors: ParseError[]
+): { forms: HTMLFormElement[]; selector: string | null } {
+  if (selectorRaw == null) {
+    return { forms: [], selector: null };
+  }
+  const selector = selectorRaw.trim();
+  if (!selector) {
+    parseErrors.push({
+      message: "fill-into requires a non-empty selector.",
+      detail: { selector: selectorRaw }
+    });
+    return { forms: [], selector };
+  }
+  let matches: Element[];
+  try {
+    matches = Array.from(doc.querySelectorAll(selector));
+  } catch (error) {
+    parseErrors.push({
+      message: "fill-into selector is invalid.",
+      detail: { selector, error: error instanceof Error ? error.message : String(error) }
+    });
+    return { forms: [], selector };
+  }
+  const forms = matches.filter((element): element is HTMLFormElement => element instanceof HTMLFormElement);
+  if (forms.length === 0) {
+    parseErrors.push({
+      message: "fill-into selector did not match any form.",
+      detail: { selector }
+    });
+  }
+  return { forms, selector };
+}
+
+function isFillControlElement(
+  element: Element
+): element is HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement
+  );
+}
+
+function removeDummyElements(root: ParentNode): void {
+  const dummyElements = selectWithRoot(root, "[hy-dummy]");
+  for (const element of dummyElements) {
+    element.remove();
+  }
+}
+
+function createAnchorElement(doc: Document, kind: "for" | "if"): Element {
+  const anchor = doc.createElement("hy-anchor");
+  anchor.setAttribute("hidden", "hy-ignore");
+  anchor.setAttribute("data-hy-anchor", kind);
+  return anchor;
+}
+
+function createIdResolver(doc: Document): (element: Element) => NodeId {
+  let counter = 0;
+  const prefix = "hy-id-";
+  const used = new Set<string>();
+
+  const nextId = (): string => {
+    let candidate = "";
+    do {
+      candidate = `${prefix}${counter.toString(36)}`;
+      counter += 1;
+    } while (doc.getElementById(candidate) || used.has(candidate));
+    used.add(candidate);
+    return candidate;
+  };
+
+  return (element: Element): NodeId => {
+    const existing = element.getAttribute("id");
+    if (existing && existing.trim() !== "") {
+      used.add(existing);
+      return existing;
+    }
+    const id = nextId();
+    element.setAttribute("id", id);
+    return id;
+  };
 }
 
 function detectErrorHandling(doc: Document): { handlesErrors: boolean; hasErrorPopover: boolean } {

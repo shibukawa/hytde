@@ -99,7 +99,7 @@ export interface RuntimeGlobals {
 }
 
 export interface ParsedForTemplate {
-  marker: Comment;
+  marker: Element;
   template: Element;
   varName: string;
   selector: string;
@@ -119,9 +119,13 @@ export interface ParsedRequestTarget {
   pollIntervalMs: number | null;
   isForm: boolean;
   trigger: "startup" | "submit" | "action";
+  actionDebounceMs: number | null;
+  redirect: string | null;
   form: HTMLFormElement | null;
-  fillInto: string | null;
-  fillTarget: string | null;
+  fillIntoForms: HTMLFormElement[];
+  fillIntoSelector: string | null;
+  fillTargetElement: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+  fillTargetSelector: string | null;
   fillValue: string | null;
 }
 
@@ -137,6 +141,66 @@ export interface ParsedFillAction {
   form: HTMLFormElement | null;
   command: string | null;
   commandFor: string | null;
+  target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+}
+
+export interface ParsedHistoryForm {
+  form: HTMLFormElement;
+  mode: "sync" | "sync-push" | "sync-replace";
+  paramsSource: "search" | "hash";
+  fieldNames: string[] | null;
+}
+
+export interface ParsedAutoSubmitForm {
+  form: HTMLFormElement;
+  events: string[];
+  debounceMs: number;
+  composeMode: "end" | "blur";
+}
+
+export interface ParsedAsyncUploadForm {
+  form: HTMLFormElement;
+  mode: "s3" | "simple";
+  uploaderUrl: string | null;
+  chunkSizeBytes: number;
+  afterSubmitAction: "clear" | "keep";
+  afterSubmitActionPresent: boolean;
+  redirectConflict: boolean;
+}
+
+export interface ParsedFormStateCandidate {
+  form: HTMLFormElement;
+  owner: HTMLElement;
+  raw: string;
+}
+
+export interface ParsedTableColumn {
+  key: string;
+  type: "number" | "date" | "boolean" | "string";
+  header?: string;
+  width?: number;
+  format?: string;
+}
+
+export interface ParsedTableOptions {
+  renderMode?: "html" | "canvas" | "auto";
+  editMode?: "direct" | "commit" | "readonly";
+  lockMode?: "none" | "row";
+  langs?: string[];
+}
+
+export interface ParsedTable {
+  table: HTMLTableElement;
+  tableId: string;
+  dataPath: string | null;
+  options: ParsedTableOptions;
+  columns: ParsedTableColumn[];
+  bindShortcut: boolean;
+}
+
+export interface ParsedTableDiagnostic {
+  message: string;
+  detail?: Record<string, unknown>;
 }
 
 export interface ParsedTextBinding {
@@ -158,7 +222,7 @@ export interface ParsedIfChainNode {
 }
 
 export interface ParsedIfChain {
-  anchor: Comment;
+  anchor: Element;
   nodes: ParsedIfChainNode[];
 }
 
@@ -179,6 +243,12 @@ export interface ParsedDocument extends ParsedSubtree {
   mockRules: unknown[];
   parseErrors: Array<{ message: string; detail?: Record<string, unknown> }>;
   requestTargets: ParsedRequestTarget[];
+  historyForms: ParsedHistoryForm[];
+  autoSubmitForms: ParsedAutoSubmitForm[];
+  asyncUploadForms: ParsedAsyncUploadForm[];
+  formStateCandidates: ParsedFormStateCandidate[];
+  tables: ParsedTable[];
+  tableDiagnostics: ParsedTableDiagnostic[];
   handlesErrors: boolean;
   hasErrorPopover: boolean;
 }

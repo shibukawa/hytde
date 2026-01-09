@@ -1,24 +1,17 @@
 import { buildAsyncUploadPayload } from "./payload";
 import { collectFormValuesWithoutFiles, formEntriesToPayload } from "../forms/values";
 import type {
-  AfterSubmitAction,
   AsyncUploadConfig,
   AsyncUploadFileState,
-  AsyncUploadMode,
   AsyncUploadSession,
   RuntimeState
 } from "../state";
-import type { ParsedRequestTarget } from "../types";
+import type { ParsedAsyncUploadForm, ParsedRequestTarget } from "../types";
 import { emitLog } from "../utils/logging";
 import { resolveRequestUrl } from "../requests/runtime";
 import { disableFormControls, restoreFormControls } from "../form/form-state";
 import { emitAsyncUploadError } from "./async-upload-errors";
-import {
-  ASYNC_UPLOAD_CLEAR_DELAY_MS,
-  ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB,
-  ASYNC_UPLOAD_MAX_CONCURRENCY,
-  ASYNC_UPLOAD_MIN_CHUNK_SIZE_MIB
-} from "../state/constants";
+import { ASYNC_UPLOAD_CLEAR_DELAY_MS, ASYNC_UPLOAD_MAX_CONCURRENCY } from "../state/constants";
 import type { AsyncUploadFileRecord } from "./async-upload-storage";
 import {
   clearPendingSubmission,
@@ -38,15 +31,13 @@ import {
 } from "./async-upload-transfer";
 
 export function setupAsyncUploadHandlers(state: RuntimeState): void {
-  const forms = Array.from(state.doc.querySelectorAll<HTMLFormElement>("form[hy-async-upload]"));
-  for (const form of forms) {
+  const forms = state.parsed.asyncUploadForms;
+  for (const entry of forms) {
+    const form = entry.form;
     if (state.asyncUploads.has(form)) {
       continue;
     }
-    const config = parseAsyncUploadConfig(form, state);
-    if (!config) {
-      continue;
-    }
+    const config = buildAsyncUploadConfig(entry);
     const session: AsyncUploadSession = {
       config,
       files: new Map(),
@@ -67,7 +58,9 @@ export function stripAsyncUploadAttributes(form: HTMLFormElement): void {
 }
 
 function attachAsyncUploadListeners(form: HTMLFormElement, session: AsyncUploadSession, state: RuntimeState): void {
-  const inputs = Array.from(form.querySelectorAll<HTMLInputElement>("input[type='file']"));
+  const inputs = Array.from(form.elements).filter(
+    (element): element is HTMLInputElement => element instanceof HTMLInputElement && element.type === "file"
+  );
   for (const input of inputs) {
     input.addEventListener("change", () => {
       if (!input.files || input.files.length === 0) {
@@ -141,98 +134,20 @@ function attachAsyncUploadListeners(form: HTMLFormElement, session: AsyncUploadS
   });
 }
 
-function parseAsyncUploadConfig(form: HTMLFormElement, state: RuntimeState): AsyncUploadConfig | null {
-  const rawModeAttr = form.getAttribute("hy-async-upload");
-  const rawMode = rawModeAttr ? rawModeAttr.trim() : "";
-  const mode: AsyncUploadMode = rawMode === "" ? "simple" : (rawMode as AsyncUploadMode);
-  if (mode !== "s3" && mode !== "simple") {
-    emitAsyncUploadError(state, "hy-async-upload must be \"s3\" or \"simple\".", {
-      formId: form.id || undefined,
-      value: rawMode
-    });
-    return null;
-  }
-  const uploaderRaw = form.getAttribute("hy-uploader-url")?.trim() ?? "";
-  let uploaderUrl = uploaderRaw || null;
-  if (!uploaderUrl && mode === "simple") {
-    const action = form.getAttribute("action")?.trim() ?? form.action?.trim() ?? "";
-    uploaderUrl = action || null;
-  }
-  if (!uploaderUrl) {
-    if (mode === "s3") {
-      emitAsyncUploadError(state, "hy-uploader-url is required for async upload.", {
-        formId: form.id || undefined,
-        mode
-      });
-      return null;
-    }
-    emitAsyncUploadError(state, "Async upload requires uploader URL or form action.", {
-      formId: form.id || undefined,
-      mode
-    });
-    return null;
-  }
-  const chunkSizeBytes = parseChunkSize(form, state);
-  const uploadUuid = createUploadUuid();
-  const formId = form.id?.trim() ? form.id.trim() : null;
-  const afterSubmitAttrRaw = form.getAttribute("hy-after-submit-action");
-  const afterSubmitAttrPresent = afterSubmitAttrRaw !== null;
-  const afterSubmitAttr = afterSubmitAttrRaw?.trim().toLowerCase() ?? "";
-  let afterSubmitAction: AfterSubmitAction = "keep";
-  if (afterSubmitAttrPresent) {
-    if (afterSubmitAttr === "clear") {
-      afterSubmitAction = "clear";
-    } else if (afterSubmitAttr === "keep" || afterSubmitAttr === "") {
-      afterSubmitAction = "keep";
-    } else {
-      emitAsyncUploadError(state, "hy-after-submit-action must be \"clear\" or \"keep\".", {
-        formId: form.id || undefined,
-        value: afterSubmitAttrRaw ?? ""
-      });
-    }
-  }
-  const hasRedirectAttr = Boolean(form.getAttribute("hy-redirect")?.trim());
-  const redirectConflict = hasRedirectAttr && afterSubmitAttrPresent;
-  if (redirectConflict) {
-    emitAsyncUploadError(state, "hy-redirect and hy-after-submit-action cannot be used together.", {
-      formId: form.id || undefined
-    });
-  }
+function buildAsyncUploadConfig(entry: ParsedAsyncUploadForm): AsyncUploadConfig {
+  const formId = entry.form.id?.trim() ? entry.form.id.trim() : null;
   return {
-    form,
+    form: entry.form,
     formId,
-    mode,
-    uploaderUrl,
-    chunkSizeBytes,
+    mode: entry.mode,
+    uploaderUrl: entry.uploaderUrl,
+    chunkSizeBytes: entry.chunkSizeBytes,
     concurrency: ASYNC_UPLOAD_MAX_CONCURRENCY,
-    uploadUuid,
-    afterSubmitAction,
-    afterSubmitActionPresent: afterSubmitAttrPresent,
-    redirectConflict
+    uploadUuid: createUploadUuid(),
+    afterSubmitAction: entry.afterSubmitAction,
+    afterSubmitActionPresent: entry.afterSubmitActionPresent,
+    redirectConflict: entry.redirectConflict
   };
-}
-
-function parseChunkSize(form: HTMLFormElement, state: RuntimeState): number {
-  const raw = form.getAttribute("hy-file-chunksize");
-  if (raw === null) {
-    return ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB * 1024 * 1024;
-  }
-  const parsed = Number(raw.trim());
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    emitAsyncUploadError(state, "hy-file-chunksize must be a positive number.", {
-      formId: form.id || undefined,
-      value: raw
-    });
-    return ASYNC_UPLOAD_DEFAULT_CHUNK_SIZE_MIB * 1024 * 1024;
-  }
-  const normalized = Math.max(parsed, ASYNC_UPLOAD_MIN_CHUNK_SIZE_MIB);
-  if (normalized !== parsed) {
-    emitAsyncUploadError(state, "hy-file-chunksize must be at least 5 MiB.", {
-      formId: form.id || undefined,
-      value: raw
-    });
-  }
-  return normalized * 1024 * 1024;
 }
 
 function createUploadUuid(): string {

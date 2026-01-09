@@ -44,8 +44,8 @@ export function clearAppendMarkers(state: RuntimeState): void {
   if (!state.appendLogOnlyNew) {
     return;
   }
-  const elements = Array.from(state.doc.querySelectorAll(`[${APPEND_MARK_ATTR}]`));
-  for (const element of elements) {
+  for (const element of state.appendMarkedElements) {
     element.removeAttribute(APPEND_MARK_ATTR);
   }
+  state.appendMarkedElements.clear();
 }

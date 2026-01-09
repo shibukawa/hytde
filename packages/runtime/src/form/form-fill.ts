@@ -16,9 +16,7 @@ export function applyFillTargets(targets: ParsedFillTarget[], state: RuntimeStat
 }
 
 export function fillForm(form: HTMLFormElement, source: Record<string, unknown>): void {
-  const controls = Array.from(
-    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input[name], select[name], textarea[name]")
-  );
+  const controls = Array.from(form.elements).filter(isNamedControlElement);
 
   for (const control of controls) {
     const name = control.name;
@@ -95,4 +93,19 @@ export function applyControlValue(
   }
 
   control.value = String(value);
+}
+
+function isNamedControlElement(
+  element: Element
+): element is HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement {
+  if (element instanceof HTMLInputElement) {
+    return Boolean(element.name);
+  }
+  if (element instanceof HTMLSelectElement) {
+    return Boolean(element.name);
+  }
+  if (element instanceof HTMLTextAreaElement) {
+    return Boolean(element.name);
+  }
+  return false;
 }

@@ -1,6 +1,6 @@
 import { createRuntime, initHyPathParams } from "@hytde/runtime";
-import { parseDocument, parseHtml, parseSubtree, resolveImports } from "@hytde/parser";
-import { countTableMarkers, ensureExtableStylesheet, ensureTableApiStub } from "./table-support";
+import { parseDocumentToIr, parseHtml, parseSubtree, resolveImports } from "@hytde/parser";
+import { ensureExtableStylesheet, ensureTableApiStub } from "./table-support";
 
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
@@ -38,22 +38,27 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   console.debug("[hytde] runtime:parse:start", { readyState: doc.readyState });
 
   initHyPathParams(doc);
-  const runtime = createRuntime({ parseDocument, parseSubtree });
+  const runtime = createRuntime({
+    parseDocument: () => {
+      throw new Error("parseDocument is not available in IR runtime.");
+    },
+    parseSubtree
+  });
   const importLogs: HyLogEntry[] = [];
   const errors = await resolveImports(doc, {
     onLog: (entry) => {
       importLogs.push(entry);
     }
   });
-  const parsed = parseDocument(doc);
-  const tableCount = parsed.executionMode === "disable" ? 0 : countTableMarkers(doc);
+  const ir = parseDocumentToIr(doc);
+  const tableCount = ir.executionMode === "disable" ? 0 : ir.tables.length;
   console.info("[hytde] runtime:parse:complete", {
-    mode: parsed.executionMode,
-    mockRules: parsed.mockRules.length,
-    requestTargets: parsed.requestTargets.length,
+    mode: ir.executionMode,
+    mockRules: ir.mockRules.length,
+    requestTargets: ir.requestTargets.length,
     tableMarkers: tableCount
   });
-  const parseErrors = Array.isArray(parsed.parseErrors) ? parsed.parseErrors : [];
+  const parseErrors = Array.isArray(ir.parseErrors) ? ir.parseErrors : [];
   if (parseErrors.length > 0) {
     const hy = ensureHy(doc.defaultView ?? globalThis);
     const nextErrors: HyError[] = parseErrors.map((error) => ({
@@ -67,13 +72,13 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
       console.error("[hytde] parse error", error.message, error.detail);
     }
   }
-  if (parsed.executionMode !== "disable" && tableCount > 0) {
+  if (ir.executionMode !== "disable" && tableCount > 0) {
     ensureExtableStylesheet(doc);
   }
-  await registerMetaMockHandlers(doc, parsed);
-  await startMockServiceWorkerIfNeeded(doc, parsed.executionMode);
-  console.debug("[hytde] runtime:data:initial", { requests: parsed.requestTargets.length });
-  runtime.init(parsed);
+  await registerMetaMockHandlers(doc, ir);
+  await startMockServiceWorkerIfNeeded(doc, ir.executionMode);
+  console.debug("[hytde] runtime:data:initial", { requests: ir.requestTargets.length });
+  runtime.init(doc, ir);
   if (errors.length > 0) {
     const hy = (doc.defaultView ?? globalThis).hy;
     if (hy && Array.isArray(hy.errors)) {
@@ -100,10 +105,10 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
 export const hy = {
   init,
   parseHtml,
-  parseDocument
+  parseDocumentToIr
 };
 
-export { parseHtml, parseDocument, parseSubtree };
+export { parseHtml, parseDocumentToIr, parseSubtree };
 
 async function startMockServiceWorkerIfNeeded(
   doc: Document,
@@ -142,9 +147,9 @@ async function startMockServiceWorkerIfNeeded(
   }
 }
 
-async function registerMetaMockHandlers(doc: Document, parsed: { executionMode: string; mockRules: unknown[] }): Promise<void> {
-  if (parsed.executionMode !== "mock") {
-    console.debug("[hytde] runtime:msw:register:skip", { reason: "mode", mode: parsed.executionMode });
+async function registerMetaMockHandlers(doc: Document, ir: { executionMode: string; mockRules: unknown[] }): Promise<void> {
+  if (ir.executionMode !== "mock") {
+    console.debug("[hytde] runtime:msw:register:skip", { reason: "mode", mode: ir.executionMode });
     return;
   }
   const scope = doc.defaultView ?? globalThis;
@@ -154,12 +159,12 @@ async function registerMetaMockHandlers(doc: Document, parsed: { executionMode: 
   const register = hy.__hytdeRegisterMswMetaHandlers;
   console.debug("[hytde] runtime:msw:register:start", {
     hasRegister: typeof register === "function",
-    mockCount: parsed.mockRules.length
+    mockCount: ir.mockRules.length
   });
   if (typeof register === "function") {
-    await register(parsed.mockRules, doc);
+    await register(ir.mockRules, doc);
     console.debug("[hytde] runtime:msw:register:complete", {
-      handlerCount: parsed.mockRules.length
+      handlerCount: ir.mockRules.length
     });
   }
 }

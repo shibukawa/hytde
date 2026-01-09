@@ -33,12 +33,12 @@ export function setupHistoryHandlers(state: RuntimeState): void {
 export function hasHistoryAutoSubmit(state: RuntimeState): boolean {
   const forms = getHistoryForms(state);
   for (const form of forms) {
-    const mode = getHistoryMode(form);
+    const mode = getHistoryMode(form, state);
     if (!mode) {
       continue;
     }
     const params = getHistoryParams(form, state);
-    if (hasHistoryParams(form, params)) {
+    if (hasHistoryParams(form, params, state)) {
       return true;
     }
   }
@@ -51,18 +51,18 @@ export async function runHistoryAutoSubmits(state: RuntimeState): Promise<void> 
   const requests: Promise<unknown>[] = [];
 
   for (const form of forms) {
-    const mode = getHistoryMode(form);
+    const mode = getHistoryMode(form, state);
     if (!mode) {
       continue;
     }
     const params = getHistoryParams(form, state);
-    const applied = applyHistoryParamsToForm(form, params);
+    const applied = applyHistoryParamsToForm(form, params, state);
     emitLog(state, {
       type: "info",
       message: "history:apply",
       detail: {
         mode,
-        source: getHistoryParamSource(form),
+        source: getHistoryParamSource(form, state),
         formId: form.id || undefined
       },
       timestamp: Date.now()
@@ -95,18 +95,18 @@ export async function runHistoryAutoSubmits(state: RuntimeState): Promise<void> 
 export function applyHistoryToForms(state: RuntimeState, reason: "popstate"): void {
   const forms = getHistoryForms(state);
   for (const form of forms) {
-    const mode = getHistoryMode(form);
+    const mode = getHistoryMode(form, state);
     if (!mode) {
       continue;
     }
     const params = getHistoryParams(form, state);
-    const applied = applyHistoryParamsToForm(form, params);
+    const applied = applyHistoryParamsToForm(form, params, state);
     emitLog(state, {
       type: "info",
       message: "history:apply",
       detail: {
         mode,
-        source: getHistoryParamSource(form),
+        source: getHistoryParamSource(form, state),
         reason,
         formId: form.id || undefined
       },
@@ -139,7 +139,7 @@ export function maybeUpdateHistoryOnSubmit(target: ParsedRequestTarget, state: R
   if (!target.form) {
     return;
   }
-  const mode = getHistoryMode(target.form);
+  const mode = getHistoryMode(target.form, state);
   if (!mode || mode === "sync") {
     return;
   }
@@ -165,9 +165,9 @@ function updateHistoryFromForm(
   if (!view) {
     return;
   }
-  const params = buildHistoryParams(form);
+  const params = buildHistoryParams(form, state);
   const url = new URL(view.location.href);
-  const source = getHistoryParamSource(form);
+  const source = getHistoryParamSource(form, state);
   const serialized = params.toString();
   if (source === "hash") {
     url.hash = serialized;
@@ -196,9 +196,9 @@ function updateHistoryFromForm(
   refreshHyParams(state);
 }
 
-function buildHistoryParams(form: HTMLFormElement): URLSearchParams {
+function buildHistoryParams(form: HTMLFormElement, state: RuntimeState): URLSearchParams {
   const params = new URLSearchParams();
-  const controls = getHistoryControls(form);
+  const controls = getHistoryControls(form, state);
   for (const control of controls) {
     if (control.disabled || !control.name) {
       continue;

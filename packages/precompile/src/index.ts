@@ -1,6 +1,6 @@
 import { createRuntime, type Runtime, initHyPathParams } from "@hytde/runtime";
 import {
-  parseDocument,
+  parseDocumentToIr,
   parseSubtree
 } from "@hytde/parser";
 
@@ -10,11 +10,13 @@ export interface PrecompileRuntime {
 }
 
 export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime {
-  const runtime = createRuntime({ parseDocument, parseSubtree });
+  const runtime = createRuntime({ parseDocument: () => {
+    throw new Error("parseDocument is not available in IR runtime.");
+  }, parseSubtree });
   const doc = resolveDocument(root);
   if (doc) {
     initHyPathParams(doc);
-    runtime.init(parseDocument(doc));
+    runtime.init(doc, parseDocumentToIr(doc));
   }
 
   return {
@@ -22,7 +24,7 @@ export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime
       const targetDoc = resolveDocument(target);
       if (targetDoc) {
         initHyPathParams(targetDoc);
-        runtime.init(parseDocument(targetDoc));
+        runtime.init(targetDoc, parseDocumentToIr(targetDoc));
       }
     },
     runtime
