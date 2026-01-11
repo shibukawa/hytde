@@ -18,5 +18,13 @@
   },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0"
+  },
+  "dependencies": {
+    "@hytde/parser": "0.0.0",
+    "@hytde/runtime": "0.0.0",
+    "linkedom": "^0.15.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0"
   }
 }

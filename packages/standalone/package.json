@@ -16,6 +16,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/debug-manual/index.js"
     },
+    "./msw-debug": {
+      "types": "./dist/msw-debug.d.ts",
+      "default": "./dist/msw-debug.js"
+    },
     "./no-auto": {
       "types": "./dist/index.d.ts",
       "default": "./dist/production-manual/index.js"

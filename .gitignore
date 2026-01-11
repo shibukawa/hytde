@@ -3,3 +3,4 @@ dist
 tsconfig.tsbuildinfo
 .specs
 .codex
+packages/precompile/src/extable.css

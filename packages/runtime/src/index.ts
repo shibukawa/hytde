@@ -5,6 +5,8 @@ export type {
   HyGlobals,
   HyLogEntry,
   HytdePlugin,
+  ParsedExpression,
+  ExpressionInput,
   JsonScalar,
   JsonScalarType,
   ParsedAttrBinding,
@@ -25,6 +27,7 @@ export type {
   PluginWatchTarget,
   RuntimeGlobals
 } from "./types";
+export type { IrDocument } from "./ir";
 
 export type { Runtime } from "./runtime";
 export { createRuntime, initHyPathParams } from "./runtime";

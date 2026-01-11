@@ -3,9 +3,42 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import hyTde from "@hytde/vite-plugin";
 
-export default defineConfig({
+const demoDebug = process.env.HYTDE_DEMO_DEBUG === "true";
+const demoManual = process.env.HYTDE_DEMO_MANUAL === "true";
+const demoPathMode = process.env.HYTDE_DEMO_PATH_MODE === "path" ? "path" : "hash";
+const demoOutDir = process.env.HYTDE_DEMO_OUT_DIR ?? "dist";
+const demoApiPort = process.env.HYTDE_DEMO_API_PORT ?? "8787";
+const demoApiTarget = `http://localhost:${demoApiPort}`;
+
+export default defineConfig(() => ({
   appType: "mpa",
-  plugins: [hyTde()],
+  plugins: [
+    hyTde({
+      debug: demoDebug,
+      manual: demoManual,
+      pathMode: demoPathMode,
+      inputPaths: ["."]
+    })
+  ],
+  server: {
+    proxy: {
+      "/api": {
+        target: demoApiTarget,
+        changeOrigin: true
+      }
+    }
+  },
+  preview: {
+    proxy: {
+      "/api": {
+        target: demoApiTarget,
+        changeOrigin: true
+      }
+    }
+  },
+  build: {
+    outDir: demoOutDir
+  },
   resolve: {
     alias: [
       {
@@ -38,4 +71,4 @@ export default defineConfig({
       }
     ]
   }
-});
+}));

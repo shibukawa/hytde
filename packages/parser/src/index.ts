@@ -698,7 +698,7 @@ function parseRequestTargets(doc: Document, parseErrors: ParseError[]): RequestT
         detail: { store: storeRaw }
       });
     }
-    const isForm = element instanceof HTMLFormElement;
+    const isForm = isFormElement(element);
     const isSubmitter = isSubmitControl(element);
     const isAction = isActionElement(element);
     if (!isForm && !isSubmitter && !isAction) {
@@ -767,12 +767,23 @@ function resolveMethodAttribute(element: Element): { attr: string; method: strin
   return null;
 }
 
+function isTagName(element: Element, tagName: string): boolean {
+  const name = element.tagName ? element.tagName.toLowerCase() : "";
+  return name === tagName;
+}
+
+function isFormElement(element: Element): element is HTMLFormElement {
+  return element instanceof HTMLFormElement || isTagName(element, "form");
+}
+
 function isSubmitControl(element: Element): element is HTMLButtonElement | HTMLInputElement {
-  if (element instanceof HTMLButtonElement) {
-    return element.type !== "button";
+  if (element instanceof HTMLButtonElement || isTagName(element, "button")) {
+    const type = (element.getAttribute("type") ?? "").toLowerCase();
+    return type === "" || type === "submit";
   }
-  if (element instanceof HTMLInputElement) {
-    return element.type === "submit";
+  if (element instanceof HTMLInputElement || isTagName(element, "input")) {
+    const type = (element.getAttribute("type") ?? "").toLowerCase();
+    return type === "submit";
   }
   return false;
 }
@@ -788,7 +799,11 @@ function isActionElement(
     element instanceof HTMLButtonElement ||
     element instanceof HTMLInputElement ||
     element instanceof HTMLSelectElement ||
-    element instanceof HTMLTextAreaElement
+    element instanceof HTMLTextAreaElement ||
+    isTagName(element, "button") ||
+    isTagName(element, "input") ||
+    isTagName(element, "select") ||
+    isTagName(element, "textarea")
   );
 }
 
@@ -1297,11 +1312,13 @@ function parseFormStateCandidates(doc: Document): FormStateCandidate[] {
 }
 
 function isFormStateSubmitter(element: Element): element is HTMLButtonElement | HTMLInputElement {
-  if (element instanceof HTMLButtonElement) {
-    return element.type === "submit";
+  if (element instanceof HTMLButtonElement || isTagName(element, "button")) {
+    const type = (element.getAttribute("type") ?? "").toLowerCase();
+    return type === "" || type === "submit";
   }
-  if (element instanceof HTMLInputElement) {
-    return element.type === "submit" || element.type === "image";
+  if (element instanceof HTMLInputElement || isTagName(element, "input")) {
+    const type = (element.getAttribute("type") ?? "").toLowerCase();
+    return type === "submit" || type === "image";
   }
   return false;
 }
@@ -1309,7 +1326,7 @@ function isFormStateSubmitter(element: Element): element is HTMLButtonElement | 
 function parseTables(doc: Document): { tables: TableConfig[]; diagnostics: TableDiagnostic[] } {
   const diagnostics: TableDiagnostic[] = [];
   const tables = Array.from(doc.getElementsByTagName("table")).filter(
-    (table): table is HTMLTableElement => table instanceof HTMLTableElement && table.hasAttribute("hy-table-data")
+    (table): table is HTMLTableElement => (table instanceof HTMLTableElement || isTagName(table, "table")) && table.hasAttribute("hy-table-data")
   );
   const tableIdGroups = new Map<string, HTMLTableElement[]>();
 
@@ -1375,13 +1392,13 @@ function parseTables(doc: Document): { tables: TableConfig[]; diagnostics: Table
 }
 
 function findHeaderRow(table: HTMLTableElement): HTMLTableRowElement | null {
-  const thead = table.tHead;
+  const thead = table.tHead ?? (table.querySelector("thead") as HTMLTableSectionElement | null);
   if (!thead) {
     return null;
   }
-  const rows = Array.from(thead.rows);
+  const rows = Array.from(thead.querySelectorAll("tr"));
   for (const row of rows) {
-    const hasTh = Array.from(row.children).some((child) => child.tagName === "TH");
+    const hasTh = Array.from(row.children).some((child) => child.tagName.toLowerCase() === "th");
     if (hasTh) {
       return row as HTMLTableRowElement;
     }
@@ -1391,7 +1408,7 @@ function findHeaderRow(table: HTMLTableElement): HTMLTableRowElement | null {
 
 function parseColumns(tableId: string, row: HTMLTableRowElement, diagnostics: TableDiagnostic[]): TableColumnConfig[] {
   const columns: TableColumnConfig[] = [];
-  const cells = Array.from(row.children).filter((child) => child.tagName === "TH") as HTMLTableCellElement[];
+  const cells = Array.from(row.children).filter((child) => child.tagName.toLowerCase() === "th") as HTMLTableCellElement[];
   for (const cell of cells) {
     const columnDefinition = parseColumnDefinition(tableId, cell, diagnostics);
     if (!columnDefinition) {
@@ -2183,10 +2200,10 @@ function parseFillTargets(root: ParentNode): FillTarget[] {
   for (const element of elements) {
     const selector = element.getAttribute("hy-fill");
     element.removeAttribute("hy-fill");
-    if (!selector || !(element instanceof HTMLFormElement)) {
+    if (!selector || !isFormElement(element)) {
       continue;
     }
-    targets.push({ form: element, selector });
+    targets.push({ form: element as HTMLFormElement, selector });
   }
 
   return targets;

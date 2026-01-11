@@ -1,7 +1,7 @@
 import { parseHashParams } from "../parse/params";
 import { parseSelectorTokensStrict } from "../utils/selectors";
 import { createHyError, pushError } from "../errors/ui";
-import type { RuntimeGlobals } from "../types";
+import type { RuntimeGlobals, ExpressionInput, ParsedExpression } from "../types";
 import type { RuntimeState } from "../state";
 import type { JsonScalar } from "../types";
 import { emitLog, emitExpressionError, emitTransformError } from "../utils/logging";
@@ -99,7 +99,10 @@ export function interpolateTemplate(
   return { value, isSingleToken, tokenValue };
 }
 
-export function evaluateExpression(expression: string, scope: ScopeStack, state: RuntimeState): unknown {
+export function evaluateExpression(expression: ExpressionInput, scope: ScopeStack, state: RuntimeState): unknown {
+  if (typeof expression !== "string") {
+    return evaluateParsedExpression(expression, scope, state);
+  }
   const parts = expression.split("|>").map((part) => part.trim()).filter(Boolean);
   if (parts.length === 0) {
     return null;
@@ -112,6 +115,43 @@ export function evaluateExpression(expression: string, scope: ScopeStack, state:
   }
 
   return value;
+}
+
+function evaluateParsedExpression(expression: ParsedExpression, scope: ScopeStack, state: RuntimeState): unknown {
+  if (!expression.selectorTokens || expression.selectorTokens.length === 0) {
+    return null;
+  }
+  let value = evaluateSelectorTokens(expression.selectorTokens, scope, state);
+  for (const transform of expression.transforms) {
+    value = applyTransform(transform, value, state);
+  }
+  return value;
+}
+
+function evaluateSelectorTokens(tokens: Array<string | number>, scope: ScopeStack, state: RuntimeState): unknown {
+  const first = tokens[0];
+  if (typeof first !== "string") {
+    return null;
+  }
+
+  let current = resolveRootValue(first, scope, state.globals);
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (current == null) {
+      return null;
+    }
+    if (typeof token === "number") {
+      current = (current as unknown[])[token];
+    } else {
+      if (token === "last" && Array.isArray(current)) {
+        current = current.length > 0 ? current[current.length - 1] : null;
+        continue;
+      }
+      current = (current as Record<string, unknown>)[token];
+    }
+  }
+
+  return current ?? null;
 }
 
 export function evaluateSelector(selector: string, scope: ScopeStack, state: RuntimeState): unknown {

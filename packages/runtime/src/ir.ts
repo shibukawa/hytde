@@ -7,7 +7,8 @@ import type {
   ParsedIfChain,
   ParsedIfChainNode,
   ParsedRequestTarget,
-  ParsedTextBinding
+  ParsedTextBinding,
+  ParsedExpression
 } from "./types";
 import type { RuntimeState } from "./state";
 
@@ -20,6 +21,7 @@ export interface IrBase {
 export interface IrTextBinding {
   nodeId: NodeId;
   expression: string;
+  expressionParts?: ParsedExpression;
 }
 
 export interface IrAttrBinding {
@@ -34,12 +36,14 @@ export interface IrForTemplate {
   templateHtml: string;
   varName: string;
   selector: string;
+  selectorParts?: ParsedExpression;
 }
 
 export interface IrIfChainNode {
   nodeId: NodeId;
   kind: "if" | "else-if" | "else";
   expression: string | null;
+  expressionParts?: ParsedExpression | null;
 }
 
 export interface IrIfChain {
@@ -189,7 +193,7 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
 
   const textBindings: ParsedTextBinding[] = ir.textBindings.map((binding) => ({
     element: resolveElement(binding.nodeId, "textBinding"),
-    expression: binding.expression
+    expression: binding.expressionParts ?? binding.expression
   }));
 
   const attrBindings: ParsedAttrBinding[] = ir.attrBindings.map((binding) => ({
@@ -204,6 +208,7 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     template: toTemplateElement(template.templateHtml),
     varName: template.varName,
     selector: template.selector,
+    selectorExpression: template.selectorParts ?? undefined,
     rendered: []
   }));
 
@@ -212,7 +217,7 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     nodes: chain.nodes.map((node): ParsedIfChainNode => ({
       node: resolveElement(node.nodeId, "ifChain.node"),
       kind: node.kind,
-      expression: node.expression
+      expression: node.expressionParts ?? node.expression
     }))
   }));
 

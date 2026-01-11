@@ -1,6 +1,7 @@
 import { cleanupRequestTargets } from "./cleanup";
 import { APPEND_MARK_ATTR, applyHyCloak, clearAppendMarkers, removeDummyNodes } from "./utils";
 import type {
+  ExpressionInput,
   ParsedAttrBinding,
   ParsedFillTarget,
   ParsedForTemplate,
@@ -67,7 +68,7 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
       ? template.marker.parentNode
       : null;
   const selectionSnapshot = select ? captureSelectSelection(select) : null;
-  const items = evaluateExpression(template.selector, scope, state);
+  const items = evaluateExpression(template.selectorExpression ?? template.selector, scope, state);
   const appendMode = state.appendStores?.has(template.selector) ?? false;
   const appendCount = Array.isArray(items) ? Math.max(0, items.length - template.rendered.length) : 0;
   const logValue = appendMode ? undefined : items;
@@ -272,7 +273,7 @@ function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: Scop
     emitLog(state, {
       type: "render",
       message: "hy:text",
-      detail: { expression: binding.expression, value },
+      detail: { expression: expressionLabel(binding.expression), value },
       timestamp: Date.now()
     });
     binding.element.removeAttribute("hy");
@@ -316,4 +317,8 @@ function hasAppendMarkerAncestor(element: Element): boolean {
     current = current.parentElement;
   }
   return false;
+}
+
+function expressionLabel(expression: ExpressionInput): string {
+  return typeof expression === "string" ? expression : expression.selector;
 }

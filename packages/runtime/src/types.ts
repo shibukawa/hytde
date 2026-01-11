@@ -103,6 +103,7 @@ export interface ParsedForTemplate {
   template: Element;
   varName: string;
   selector: string;
+  selectorExpression?: ParsedExpression;
   rendered: Node[];
 }
 
@@ -205,7 +206,7 @@ export interface ParsedTableDiagnostic {
 
 export interface ParsedTextBinding {
   element: Element;
-  expression: string;
+  expression: ExpressionInput;
 }
 
 export interface ParsedAttrBinding {
@@ -218,13 +219,21 @@ export interface ParsedAttrBinding {
 export interface ParsedIfChainNode {
   node: Element;
   kind: "if" | "else-if" | "else";
-  expression: string | null;
+  expression: ExpressionInput | null;
 }
 
 export interface ParsedIfChain {
   anchor: Element;
   nodes: ParsedIfChainNode[];
 }
+
+export type ParsedExpression = {
+  selector: string;
+  selectorTokens: Array<string | number>;
+  transforms: Array<{ name: string; args: JsonScalar[] }>;
+};
+
+export type ExpressionInput = string | ParsedExpression;
 
 export interface ParsedSubtree {
   dummyElements: Element[];

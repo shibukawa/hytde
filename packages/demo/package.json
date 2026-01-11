@@ -6,9 +6,15 @@
   "scripts": {
     "predev": "node ../../scripts/copy-msw-worker.mjs",
     "dev": "vite",
+    "dev:demo:prod:hash": "HYTDE_DEMO_DEBUG=false HYTDE_DEMO_PATH_MODE=hash vite",
+    "dev:demo:prod:path": "HYTDE_DEMO_DEBUG=false HYTDE_DEMO_PATH_MODE=path vite",
+    "dev:demo:debug:hash": "node ../../scripts/copy-msw-worker.mjs && HYTDE_DEMO_DEBUG=true HYTDE_DEMO_PATH_MODE=hash vite",
+    "dev:demo:debug:path": "node ../../scripts/copy-msw-worker.mjs && HYTDE_DEMO_DEBUG=true HYTDE_DEMO_PATH_MODE=path vite",
     "prebuild": "node ../../scripts/copy-msw-worker.mjs",
     "build": "vite build",
     "preview": "vite preview",
+    "preview:demo:prod": "HYTDE_DEMO_DEBUG=false HYTDE_DEMO_PATH_MODE=hash HYTDE_DEMO_OUT_DIR=dist/prod-auto vite build && vite preview --outDir dist/prod-auto",
+    "preview:demo:debug": "node ../../scripts/copy-msw-worker.mjs && HYTDE_DEMO_DEBUG=true HYTDE_DEMO_PATH_MODE=hash HYTDE_DEMO_OUT_DIR=dist/debug-auto vite build && vite preview --outDir dist/debug-auto",
     "test": "echo \"no tests\""
   },
   "dependencies": {
@@ -17,6 +23,8 @@
   },
   "devDependencies": {
     "@hytde/vite-plugin": "0.0.0",
+    "@hono/node-server": "^1.12.0",
+    "hono": "^4.6.8",
     "msw": "^2.3.1"
   }
 }

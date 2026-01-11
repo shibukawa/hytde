@@ -98,7 +98,10 @@ function scheduleAutoSubmit(form: HTMLFormElement, state: RuntimeState, reason: 
     });
     return;
   }
-  const target = state.formTargets.get(form) ?? null;
+  const target =
+    state.formTargets.get(form) ??
+    state.parsed.requestTargets.find((entry) => entry.trigger === "submit" && entry.form === form) ??
+    null;
   if (!target) {
     emitLog(state, {
       type: "info",
