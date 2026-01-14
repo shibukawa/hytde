@@ -1,8 +1,9 @@
 import type { Plugin, IndexHtmlTransformContext, ResolvedConfig } from "vite";
+import type { OutputAsset, OutputBundle } from "rollup";
 import { parseHTML } from "linkedom";
 import type { Dirent } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readdir, stat } from "node:fs/promises";
 import { statSync } from "node:fs";
@@ -11,6 +12,10 @@ import type { IrDocument } from "@hytde/runtime";
 
 const PARSER_SNAPSHOT_ID = "hy-precompile-parser";
 const STANDALONE_IMPORT_PATTERN = /@hytde\/standalone(?:\/[a-z-]+)?/g;
+const TAILWIND_VIRTUAL_ID = "virtual:hytde-tailwind.css";
+const TAILWIND_RESOLVED_ID = `\0${TAILWIND_VIRTUAL_ID}`;
+const TAILWIND_ASSET_NAME = "hytde-tailwind.css";
+const TAILWIND_LINK_MARKER = "data-hytde-tailwind";
 
 type MockOption = "default" | true | false;
 
@@ -20,13 +25,20 @@ type HyTdePluginOptions = {
   pathMode?: "hash" | "path";
   manual?: boolean;
   inputPaths?: string[];
+  /**
+   * Enable Tailwind v4 processing for precompiled output.
+   * - `true`: uses a virtual stylesheet with `@import "tailwindcss"`.
+   * - `string`: path to a CSS file that imports Tailwind.
+   */
+  tailwindSupport?: boolean | string;
 };
 
-export default function hyTde(options: HyTdePluginOptions = {}): Plugin {
+export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
   let rootDir = process.cwd();
   let resolvedConfig: ResolvedConfig | null = null;
+  let tailwindSupport: Promise<TailwindSupportConfig | null> | null = null;
 
-  return {
+  const corePlugin: Plugin = {
     name: "hytde",
     enforce: "pre",
     async config(config, env) {
@@ -34,12 +46,17 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin {
         return;
       }
       const root = resolve(config.root ?? process.cwd());
+      tailwindSupport = resolveTailwindSupport(options, root);
       const htmlInputs = await collectHtmlEntries(root, options.inputPaths);
       if (htmlInputs.length === 0) {
         return;
       }
       const existing = config.build?.rollupOptions?.input;
-      const mergedInput = mergeRollupInput(existing, htmlInputs, root);
+      let mergedInput = mergeRollupInput(existing, htmlInputs, root);
+      const tailwindEntry = await tailwindSupport;
+      if (tailwindEntry) {
+        mergedInput = mergeTailwindInput(mergedInput, tailwindEntry.input);
+      }
       return {
         build: {
           rollupOptions: {
@@ -53,6 +70,12 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin {
       resolvedConfig = config;
     },
     async resolveId(source, importer) {
+      if (source === TAILWIND_VIRTUAL_ID) {
+        return TAILWIND_RESOLVED_ID;
+      }
+      if (source === TAILWIND_RESOLVED_ID) {
+        return source;
+      }
       if (!source.includes("@hytde/standalone") || source.includes("@hytde/standalone/debug-api")) {
         return null;
       }
@@ -65,6 +88,12 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin {
       const resolved = await this.resolve(mapped, importer, { skipSelf: true });
       return resolved?.id ?? null;
     },
+    load(id) {
+      if (id === TAILWIND_RESOLVED_ID) {
+        return '@import "tailwindcss";\n';
+      }
+      return null;
+    },
     async transformIndexHtml(html, ctx) {
       const resolveId = async (id: string, importer?: string) => {
         const ctxResolve = (this as { resolve?: (id: string, importer?: string, options?: unknown) => Promise<unknown> } | undefined)
@@ -75,7 +104,9 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin {
         }
         return null;
       };
-      return precompileHtml(html, ctx, rootDir, resolveId, options, resolvedConfig);
+      const support = tailwindSupport ?? resolveTailwindSupport(options, rootDir);
+      tailwindSupport = support;
+      return precompileHtml(html, ctx, rootDir, resolveId, options, resolvedConfig, await support);
     },
     configureServer(server) {
       server.middlewares.use(async (req, _res, next) => {
@@ -92,6 +123,39 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin {
       });
     }
   };
+
+  const tailwindLinkPlugin: Plugin = {
+    name: "hytde-tailwind-link",
+    apply: "build",
+    enforce: "post",
+    async generateBundle(_options, bundle) {
+      const support = await tailwindSupport;
+      if (!support) {
+        return;
+      }
+      const cssAsset = findTailwindCssAsset(bundle, support);
+      if (!cssAsset) {
+        this.warn(`[hytde] tailwind CSS asset not found for ${support.input}`);
+        return;
+      }
+      const href = normalizeAssetHref(cssAsset.fileName);
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "asset" || !output.fileName.endsWith(".html")) {
+          continue;
+        }
+        const source = readAssetSource(output);
+        if (!source || !source.includes(TAILWIND_LINK_MARKER)) {
+          continue;
+        }
+        const updated = updateTailwindLinkHref(source, href);
+        if (updated !== source) {
+          output.source = updated;
+        }
+      }
+    }
+  };
+
+  return [corePlugin, tailwindLinkPlugin];
 }
 
 async function precompileHtml(
@@ -100,7 +164,8 @@ async function precompileHtml(
   rootDir: string,
   resolveId: (id: string, importer?: string) => Promise<{ id: string } | null>,
   options: HyTdePluginOptions,
-  resolvedConfig: ResolvedConfig | null
+  resolvedConfig: ResolvedConfig | null,
+  tailwindSupport: TailwindSupportConfig | null
 ): Promise<string> {
   const doc = parseHtmlDocument(html);
   const basePath = resolveBasePath(ctx, rootDir);
@@ -108,6 +173,7 @@ async function precompileHtml(
   const ir = parseDocumentToIr(doc);
   stripPrototypingArtifacts(doc);
   normalizeSelectAnchors(doc);
+  applyTailwindSupport(doc, tailwindSupport);
   const isDebug = resolveRuntimeDebugMode(ctx, options, resolvedConfig);
   applyMockHandling(doc, ir, options, resolvedConfig, isDebug);
   preparseExpressions(ir);
@@ -425,6 +491,112 @@ function stripPrototypingArtifacts(doc: Document): void {
   for (const element of cloakElements) {
     element.removeAttribute("hy-cloak");
   }
+}
+
+type TailwindSupportConfig = {
+  mode: "virtual" | "file";
+  input: string;
+  href: string;
+};
+
+async function resolveTailwindSupport(
+  options: HyTdePluginOptions,
+  rootDir: string
+): Promise<TailwindSupportConfig | null> {
+  const support = options.tailwindSupport;
+  if (!support) {
+    return null;
+  }
+  if (support === true) {
+    return {
+      mode: "virtual",
+      input: TAILWIND_VIRTUAL_ID,
+      href: TAILWIND_VIRTUAL_ID
+    };
+  }
+  const resolved = isAbsolute(support) ? support : resolve(rootDir, support);
+  const css = await readTailwindCss(resolved, support);
+  if (!/@import\s+['"]tailwindcss['"]/.test(css)) {
+    throw new Error(`[hytde] tailwindSupport file must include @import "tailwindcss": ${support}`);
+  }
+  const href = toPosixPath(relative(rootDir, resolved));
+  return {
+    mode: "file",
+    input: resolved,
+    href: href.startsWith(".") ? href : `/${href}`
+  };
+}
+
+async function readTailwindCss(resolvedPath: string, original: string): Promise<string> {
+  try {
+    return await readFile(resolvedPath, "utf8");
+  } catch {
+    throw new Error(`[hytde] tailwindSupport file not found: ${original}`);
+  }
+}
+
+function applyTailwindSupport(doc: Document, support: TailwindSupportConfig | null): void {
+  if (!support) {
+    return;
+  }
+  if (hasTailwindCdn(doc)) {
+    return;
+  }
+  if (doc.querySelector(`link[${TAILWIND_LINK_MARKER}]`)) {
+    return;
+  }
+  const head = doc.head ?? doc.querySelector("head");
+  if (!head) {
+    return;
+  }
+  const link = doc.createElement("link");
+  link.rel = "stylesheet";
+  link.href = support.href;
+  link.setAttribute(TAILWIND_LINK_MARKER, "true");
+  head.appendChild(link);
+}
+
+function findTailwindCssAsset(
+  bundle: OutputBundle,
+  support: TailwindSupportConfig
+): OutputAsset | null {
+  const targetName = support.mode === "file" ? basename(support.input) : TAILWIND_ASSET_NAME;
+  for (const output of Object.values(bundle)) {
+    if (output.type !== "asset" || !output.fileName.endsWith(".css")) {
+      continue;
+    }
+    if (output.name === targetName) {
+      return output;
+    }
+  }
+  return null;
+}
+
+function normalizeAssetHref(fileName: string): string {
+  return fileName.startsWith("/") ? fileName : `/${fileName}`;
+}
+
+function updateTailwindLinkHref(html: string, href: string): string {
+  return html.replace(/<link\b[^>]*data-hytde-tailwind="true"[^>]*>/g, (tag) => {
+    if (tag.includes("href=")) {
+      return tag.replace(/href=(["']).*?\1/, `href="${href}"`);
+    }
+    return tag.replace("<link", `<link href="${href}"`);
+  });
+}
+
+function readAssetSource(asset: OutputAsset): string | null {
+  if (typeof asset.source === "string") {
+    return asset.source;
+  }
+  if (asset.source instanceof Uint8Array) {
+    return Buffer.from(asset.source).toString("utf8");
+  }
+  return null;
+}
+
+function hasTailwindCdn(doc: Document): boolean {
+  return Boolean(doc.querySelector('script[src*="cdn.tailwindcss.com"]'));
 }
 
 function normalizeSelectAnchors(doc: Document): void {
@@ -980,6 +1152,27 @@ function mergeRollupInput(
     if (!(key in merged)) {
       merged[key] = file;
     }
+  }
+  return merged;
+}
+
+function mergeTailwindInput(
+  existing: ResolvedConfig["build"]["rollupOptions"]["input"],
+  tailwindInput: string
+): ResolvedConfig["build"]["rollupOptions"]["input"] {
+  if (!existing) {
+    return [tailwindInput];
+  }
+  if (typeof existing === "string") {
+    return uniqueInputs([existing, tailwindInput]);
+  }
+  if (Array.isArray(existing)) {
+    return uniqueInputs([...existing, tailwindInput]);
+  }
+  const merged = { ...existing };
+  const values = new Set(Object.values(merged));
+  if (!values.has(tailwindInput)) {
+    merged.tailwind = tailwindInput;
   }
   return merged;
 }

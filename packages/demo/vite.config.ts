@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import hyTde from "@hytde/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 
 const demoDebug = process.env.HYTDE_DEMO_DEBUG === "true";
 const demoManual = process.env.HYTDE_DEMO_MANUAL === "true";
@@ -13,11 +14,13 @@ const demoApiTarget = `http://localhost:${demoApiPort}`;
 export default defineConfig(() => ({
   appType: "mpa",
   plugins: [
-    hyTde({
+    tailwindcss(),
+    ...hyTde({
       debug: demoDebug,
       manual: demoManual,
       pathMode: demoPathMode,
-      inputPaths: ["."]
+      inputPaths: ["."],
+      tailwindSupport: "src/styles.css"
     })
   ],
   server: {

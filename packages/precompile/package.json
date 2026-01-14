@@ -32,5 +32,8 @@
     "@hytde/runtime": "0.0.0",
     "@hytde/parser": "0.0.0",
     "@hytde/standalone": "0.0.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.0.0"
   }
 }
