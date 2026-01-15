@@ -1,4 +1,5 @@
 const TABLE_REGISTRY_KEY = "__hytdeTableRegistry";
+const INIT_DONE_KEY = "__hytdeInitDone";
 const EXTABLE_STYLE_MARKER = "data-hytde-extable-style";
 const EXTABLE_STYLE_RELATIVE_PATH = "./extable.css";
 
@@ -15,6 +16,7 @@ type TableApi = {
 type HyTableState = {
   loading: boolean;
   errors: unknown[];
+  [INIT_DONE_KEY]?: boolean;
   table?: TableApi;
 };
 
@@ -26,10 +28,10 @@ export function ensureTableApiStub(scope: typeof globalThis): void {
   const registry = getTableRegistry(scope);
   hy.table = {
     formula: (tableId, columnKey, formula) => {
-      registerTableEntry(registry.formulaRegistry, tableId, columnKey, formula);
+      registerTableEntry(scope, registry.formulaRegistry, tableId, columnKey, formula);
     },
     conditionalStyle: (tableId, columnKey, styleRule) => {
-      registerTableEntry(registry.conditionalStyleRegistry, tableId, columnKey, styleRule);
+      registerTableEntry(scope, registry.conditionalStyleRegistry, tableId, columnKey, styleRule);
     }
   };
 }
@@ -74,11 +76,16 @@ function getTableRegistry(scope: typeof globalThis): TableRegistry {
 }
 
 function registerTableEntry(
+  scope: typeof globalThis,
   registryMap: Map<string, Map<string, unknown>>,
   tableId: string,
   columnKey: string,
   value: unknown
 ): void {
+  if (isInitDone(scope)) {
+    console.error("[hytde] hy.table registration must run before DOMContentLoaded. Do not use defer/async.");
+    return;
+  }
   if (!tableId || !columnKey) {
     return;
   }
@@ -93,6 +100,11 @@ function registerTableEntry(
     registryMap.set(tableKey, tableMap);
   }
   tableMap.set(columnKeyTrimmed, value);
+}
+
+function isInitDone(scope: typeof globalThis): boolean {
+  const hy = scope.hy as HyTableState | undefined;
+  return Boolean(hy?.[INIT_DONE_KEY]);
 }
 
 function isStandaloneRuntimeUrl(): boolean {

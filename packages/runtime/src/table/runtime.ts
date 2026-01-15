@@ -45,6 +45,7 @@ type TablePluginState = {
 };
 
 const TABLE_REGISTRY_KEY = "__hytdeTableRegistry";
+const INIT_DONE_KEY = "__hytdeInitDone";
 
 let tablePlugin: HytdePlugin | null = null;
 
@@ -73,10 +74,10 @@ export function ensureTableApi(scope: typeof globalThis): TableApi {
   getTableRegistry(scope);
   const api: TableApi = {
     formula: (tableId, columnKey, formula) => {
-      registerTableEntry(getTableRegistry(scope).formulaRegistry, tableId, columnKey, formula);
+      registerTableEntry(scope, getTableRegistry(scope).formulaRegistry, tableId, columnKey, formula);
     },
     conditionalStyle: (tableId, columnKey, styleRule) => {
-      registerTableEntry(getTableRegistry(scope).conditionalStyleRegistry, tableId, columnKey, styleRule);
+      registerTableEntry(scope, getTableRegistry(scope).conditionalStyleRegistry, tableId, columnKey, styleRule);
     }
   };
   hy.table = api;
@@ -147,11 +148,16 @@ function getTableRegistry(scope: typeof globalThis): TableRegistry {
 }
 
 function registerTableEntry(
+  scope: typeof globalThis,
   registryMap: Map<string, Map<string, unknown>>,
   tableId: string,
   columnKey: string,
   value: unknown
 ): void {
+  if (isInitDone(scope)) {
+    console.error("[hytde] hy.table registration must run before DOMContentLoaded. Do not use defer/async.");
+    return;
+  }
   if (!tableId || !columnKey) {
     return;
   }
@@ -166,6 +172,11 @@ function registerTableEntry(
     registryMap.set(tableKey, tableMap);
   }
   tableMap.set(columnKeyTrimmed, value);
+}
+
+function isInitDone(scope: typeof globalThis): boolean {
+  const hy = scope.hy as HyWithTable | undefined;
+  return Boolean(hy?.[INIT_DONE_KEY]);
 }
 
 async function initializeTables(

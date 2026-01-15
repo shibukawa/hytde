@@ -5,6 +5,7 @@ import { ensureExtableStylesheet, ensureTableApiStub } from "./table-support";
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
 const MSW_STATE_KEY = "__hytdeMswState";
+const INIT_DONE_KEY = "__hytdeInitDone";
 
 type HyLogEntry = {
   type: "render" | "request" | "error" | "info";
@@ -25,6 +26,7 @@ type HyLogState = {
   [LOG_BUFFER_KEY]?: HyLogEntry[];
   [MSW_STATE_KEY]?: { start?: (mode: "production" | "mock" | "disable") => Promise<void> | void; started?: boolean };
   __hytdeRegisterMswMetaHandlers?: (rules: unknown[], doc: Document) => Promise<void>;
+  __hytdeInitDone?: boolean;
   mockServiceWorker?: (...args: unknown[]) => void | Promise<void>;
 };
 
@@ -100,6 +102,8 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   if (importLogs.length > 0) {
     emitBufferedLogs(doc.defaultView ?? globalThis, importLogs);
   }
+  const hy = ensureHy(doc.defaultView ?? globalThis);
+  hy[INIT_DONE_KEY] = true;
 }
 
 export const hy = {
