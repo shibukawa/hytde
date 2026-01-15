@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Build workspace packages
-        run: npm run build -w packages/parser -w packages/runtime -w packages/vite-plugin -w packages/standalone
+        run: npm run build -w packages/parser -w packages/runtime -w packages/vite-plugin -w packages/standalone -w packages/precompile
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
       - name: Run E2E tests

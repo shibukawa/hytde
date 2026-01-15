@@ -67,9 +67,9 @@ registerRoute("GET", "/api/users/102/detail.json", "/mocks/users/102-detail.json
 registerRoute("GET", "/api/users", "/mocks/path-parameter-users.json");
 registerRoute("GET", "/api/notifications", "/mocks/notifications.json");
 registerRoute("GET", "/api/orders", "/mocks/table-orders.json");
-registerRoute("GET", "/api/categories", "/archive/mocks/cascading/categories.json");
-registerRoute("GET", "/api/subcategories/a1", "/archive/mocks/cascading/subcategories-a1.json");
-registerRoute("GET", "/api/items/b1", "/archive/mocks/cascading/items-b1.json");
+registerRoute("GET", "/api/categories", "/mocks/cascading/categories.json");
+registerRoute("GET", "/api/subcategories/a1", "/mocks/cascading/subcategories-a1.json");
+registerRoute("GET", "/api/items/b1", "/mocks/cascading/items-b1.json");
 
 // Parameterized routes
 app.get("/api/users/:userId", async (c) => {
