@@ -22,6 +22,7 @@
     "@hytde/runtime": "0.0.0"
   },
   "devDependencies": {
+    "@hytde/standalone": "0.0.0",
     "@hytde/vite-plugin": "0.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@hono/node-server": "^1.12.0",
