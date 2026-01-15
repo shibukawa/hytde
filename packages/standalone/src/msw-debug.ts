@@ -17,6 +17,7 @@ type HyLogState = {
   __hytdeLogBuffer?: HyLogEntry[];
   __hytdeMswState?: MswState;
   __hytdeRegisterMswMetaHandlers?: (rules: MockRule[], doc: Document) => void;
+  __hytdeInitDone?: boolean;
   mockServiceWorker?: (...args: unknown[]) => void | Promise<void>;
 };
 
@@ -40,6 +41,7 @@ type MswState = {
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
 const MSW_STATE_KEY = "__hytdeMswState";
+const INIT_DONE_KEY = "__hytdeInitDone";
 
 const MSW_OPTION_KEYS = new Set([
   "serviceWorker",
@@ -77,6 +79,10 @@ export function installMockServiceWorkerApi(scope: typeof globalThis): void {
 }
 
 function registerMockServiceWorker(scope: typeof globalThis, state: MswState, args: unknown[]): void {
+  if (isInitDone(scope)) {
+    console.error("[hytde] mockServiceWorker must run before DOMContentLoaded. Do not use defer/async.");
+    return;
+  }
   const { handlers, options } = parseMswArgs(args);
   const newHandlers: MswHandler[] = [];
 
@@ -258,6 +264,11 @@ function getMswState(scope: typeof globalThis): MswState {
   };
   hy[MSW_STATE_KEY] = state;
   return state;
+}
+
+function isInitDone(scope: typeof globalThis): boolean {
+  const hy = scope.hy as HyLogState | undefined;
+  return Boolean(hy?.[INIT_DONE_KEY]);
 }
 
 async function registerMetaMockHandlers(

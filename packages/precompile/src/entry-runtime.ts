@@ -6,6 +6,7 @@ import extableCssUrl from "./extable.css?url";
 const PARSER_SNAPSHOT_ID = "hy-precompile-parser";
 const MSW_STATE_KEY = "__hytdeMswState";
 const EXTABLE_STYLE_MARKER = "data-hytde-extable-style";
+const INIT_DONE_KEY = "__hytdeInitDone";
 
 type HyError = {
   type: "request" | "transform" | "syntax" | "data";
@@ -22,6 +23,7 @@ type ParseError = {
 type HyLogState = {
   [MSW_STATE_KEY]?: { start?: (mode: "production" | "mock" | "disable") => Promise<void> | void; started?: boolean };
   __hytdeRegisterMswMetaHandlers?: (rules: unknown[], doc: Document) => Promise<void>;
+  __hytdeInitDone?: boolean;
   mockServiceWorker?: (...args: unknown[]) => void | Promise<void>;
 };
 
@@ -72,6 +74,8 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   await registerMetaMockHandlers(doc, ir);
   await startMockServiceWorkerIfNeeded(doc, ir.executionMode);
   runtime.init(doc, ir);
+  const hy = ensureHy(doc.defaultView ?? globalThis);
+  hy[INIT_DONE_KEY] = true;
   console.debug("[hytde] precompile:entry:done", { url: doc.URL });
 }
 

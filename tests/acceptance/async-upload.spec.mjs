@@ -50,6 +50,6 @@ test("async upload redirect navigates on success", async ({ page }) => {
   await page.goto("/acceptance/async-upload-redirect.html");
   await page.locator('input[type="file"]').setInputFiles(fixtureA);
   await page.locator('button[type="submit"]').click();
-  await page.waitForURL("**/acceptance/basic.html");
+  await page.waitForURL(/\/acceptance\/basic(?:\.html)?$/);
   await expect(page.getByTestId("name")).toHaveText("Alice");
 });

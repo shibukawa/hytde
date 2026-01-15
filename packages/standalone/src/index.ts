@@ -30,6 +30,7 @@ type HyError = {
 
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
 const LOG_BUFFER_KEY = "__hytdeLogBuffer";
+const INIT_DONE_KEY = "__hytdeInitDone";
 export async function init(root?: Document | HTMLElement): Promise<void> {
   const doc = resolveDocument(root);
   if (!doc) {
@@ -79,6 +80,8 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   if (importLogs.length > 0) {
     emitBufferedLogs(doc.defaultView ?? globalThis, importLogs);
   }
+  const hy = ensureHy(doc.defaultView ?? globalThis);
+  hy[INIT_DONE_KEY] = true;
 }
 
 export const hy = {
@@ -130,6 +133,7 @@ function emitBufferedLogs(scope: typeof globalThis, entries: HyLogEntry[]): void
 type HyLogState = {
   [LOG_CALLBACK_KEY]?: Array<(entry: HyLogEntry) => void>;
   [LOG_BUFFER_KEY]?: HyLogEntry[];
+  [INIT_DONE_KEY]?: boolean;
 };
 
 function ensureHy(scope: typeof globalThis): HyLogState & { loading: boolean; errors: unknown[] } {
