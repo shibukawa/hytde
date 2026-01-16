@@ -1,17 +1,17 @@
-import { collectFormValues, formEntriesToPayload } from "../forms/values";
-import type { FormEntry } from "../forms/values";
-import { createHyError, pushError } from "../errors/ui";
-import { emitLog } from "../utils/logging";
-import { isFormControl } from "./form-controls";
-import { fillForm } from "./form-fill";
-import type { ParsedRequestTarget } from "../types";
+import { collectFormValues, formEntriesToPayload } from "../forms/values.js";
+import type { FormEntry } from "../forms/values.js";
+import { createHyError, pushError } from "../errors/ui.js";
+import { emitLog } from "../utils/logging.js";
+import { isFormControl } from "./form-controls.js";
+import { fillForm } from "./form-fill.js";
+import type { ParsedRequestTarget } from "../types.js";
 import type {
   FormDisableSnapshot,
   FormStateContext,
   FormStateDeclaration,
   FormStateMode,
   RuntimeState
-} from "../state";
+} from "../state.js";
 
 const DEFAULT_AUTOSAVE_DELAY_MS = 500;
 

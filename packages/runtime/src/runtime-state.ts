@@ -1,10 +1,10 @@
-import { parseHyPathMeta } from "./parse/hy-path";
-import type { HyGlobals, HyLogEntry, ParsedDocument, ParserAdapter } from "./types";
-import type { RuntimeGlobals } from "./types";
-import type { RuntimeState } from "./state";
-import { buildCascadeState } from "./action/cascade";
-import { ensureCallbackStore, LOG_CALLBACK_KEY, RENDER_CALLBACK_KEY } from "./state/globals";
-import { handleActionRequest, prefetchActionRequest } from "./requests/runtime";
+import { parseHyPathMeta } from "./parse/hy-path.js";
+import type { HyGlobals, HyLogEntry, ParsedDocument, ParserAdapter } from "./types.js";
+import type { RuntimeGlobals } from "./types.js";
+import type { RuntimeState } from "./state.js";
+import { buildCascadeState } from "./action/cascade.js";
+import { ensureCallbackStore, LOG_CALLBACK_KEY, RENDER_CALLBACK_KEY } from "./state/globals.js";
+import { handleActionRequest, prefetchActionRequest } from "./requests/runtime.js";
 
 const runtimeStates = new WeakMap<Document, RuntimeState>();
 

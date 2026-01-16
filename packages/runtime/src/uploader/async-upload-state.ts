@@ -1,5 +1,5 @@
-import type { AsyncUploadEntry } from "../types";
-import type { AsyncUploadFileState, AsyncUploadSession, RuntimeState } from "../state";
+import type { AsyncUploadEntry } from "../types.js";
+import type { AsyncUploadFileState, AsyncUploadSession, RuntimeState } from "../state.js";
 
 export function upsertAsyncUploadEntry(
   session: AsyncUploadSession,

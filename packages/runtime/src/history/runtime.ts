@@ -6,12 +6,12 @@ import {
   getHistoryParamSource,
   getHistoryParams,
   hasHistoryParams
-} from "./helpers";
-import type { ParsedRequestTarget } from "../types";
-import type { RuntimeState } from "../state";
-import { emitLog } from "../utils/logging";
-import { refreshHyParams } from "../state/globals";
-import { handleRequest } from "../requests/runtime";
+} from "./helpers.js";
+import type { ParsedRequestTarget } from "../types.js";
+import type { RuntimeState } from "../state.js";
+import { emitLog } from "../utils/logging.js";
+import { refreshHyParams } from "../state/globals.js";
+import { handleRequest } from "../requests/runtime.js";
 
 export function setupHistoryHandlers(state: RuntimeState): void {
   const view = state.doc.defaultView;

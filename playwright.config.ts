@@ -23,6 +23,11 @@ export default defineConfig({
       command: "bash scripts/build-and-serve-precompiled.sh",
       url: "http://127.0.0.1:5174",
       reuseExistingServer: false
+    },
+    {
+      command: "npm run ssr:dev -w packages/demo",
+      url: "http://127.0.0.1:5175",
+      reuseExistingServer: false
     }
   ],
   projects: [
@@ -38,6 +43,13 @@ export default defineConfig({
       use: {
         ...devices["desktop-chrome"],
         baseURL: "http://127.0.0.1:5174"
+      }
+    },
+    {
+      name: "ssr",
+      use: {
+        ...devices["desktop-chrome"],
+        baseURL: "http://127.0.0.1:5175"
       }
     }
   ]

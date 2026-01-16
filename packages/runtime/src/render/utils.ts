@@ -1,4 +1,4 @@
-import type { RuntimeState } from "../state";
+import type { RuntimeState } from "../state.js";
 
 export const APPEND_MARK_ATTR = "data-hy-append";
 
@@ -17,6 +17,7 @@ export function applyHyCloak(state: RuntimeState): void {
     state.cloakApplied = true;
     return;
   }
+  const canAnimate = typeof requestAnimationFrame === "function";
 
   for (const element of elements) {
     if (!element.isConnected) {
@@ -27,11 +28,14 @@ export function applyHyCloak(state: RuntimeState): void {
       continue;
     }
     element.style.removeProperty("display");
+    element.removeAttribute("hy-cloak");
+    if (!canAnimate) {
+      continue;
+    }
     if (!element.style.transition) {
       element.style.transition = "opacity 160ms ease";
     }
     element.style.opacity = "0";
-    element.removeAttribute("hy-cloak");
     requestAnimationFrame(() => {
       element.style.opacity = "1";
     });

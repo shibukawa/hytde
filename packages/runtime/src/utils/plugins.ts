@@ -2,9 +2,9 @@ import type {
   HytdePlugin,
   PluginChange,
   PluginRenderContext
-} from "../types";
-import type { PluginRegistration, RuntimeState } from "../state";
-import { getFormStateLeaveMessage, shouldPromptLeave } from "../form/form-state";
+} from "../types.js";
+import type { PluginRegistration, RuntimeState } from "../state.js";
+import { getFormStateLeaveMessage, shouldPromptLeave } from "../form/form-state.js";
 
 export function setupPlugins(state: RuntimeState): void {
   const hy = state.globals.hy as unknown as Record<string, unknown> & { plugins?: HytdePlugin[] };

@@ -1,5 +1,5 @@
-import type { HyPathMeta, HyPathMode } from "../state";
-import { isRelativePath, normalizePathPattern, stripQueryHash } from "../utils/path-pattern";
+import type { HyPathMeta, HyPathMode } from "../state.js";
+import { isRelativePath, normalizePathPattern, stripQueryHash } from "../utils/path-pattern.js";
 
 export function parseHyPathMeta(doc: Document): HyPathMeta {
   const template = parseHyPathTemplate(doc);

@@ -1,6 +1,6 @@
-import type { RuntimeState } from "../state";
-import { resolvePath } from "../utils/path";
-import { parseSelectorTokens } from "../utils/selectors";
+import type { RuntimeState } from "../state.js";
+import { resolvePath } from "../utils/path.js";
+import { parseSelectorTokens } from "../utils/selectors.js";
 
 export function getStreamKeyCache(store: string, state: RuntimeState, keySelector: string): Set<string> {
   const existing = state.streamKeyCache.get(store);

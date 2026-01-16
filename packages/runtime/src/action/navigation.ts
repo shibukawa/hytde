@@ -1,8 +1,8 @@
-import type { RuntimeState } from "../state";
-import { emitLog } from "../utils/logging";
-import { resolveUrlTemplate } from "../state/expression";
-import { buildScopeStack } from "../render";
-import { NAV_FALLBACK_ATTR } from "../state/constants";
+import type { RuntimeState } from "../state.js";
+import { emitLog } from "../utils/logging.js";
+import { resolveUrlTemplate } from "../state/expression.js";
+import { buildScopeStack } from "../render/index.js";
+import { NAV_FALLBACK_ATTR } from "../state/constants.js";
 
 export function setupNavigationHandlers(state: RuntimeState): void {
   const view = state.doc.defaultView;

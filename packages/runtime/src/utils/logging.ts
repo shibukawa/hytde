@@ -1,6 +1,6 @@
-import { createHyError, pushError } from "../errors/ui";
-import type { HyLogEntry } from "../types";
-import type { RuntimeState } from "../state";
+import { createHyError, pushError } from "../errors/ui.js";
+import type { HyLogEntry } from "../types.js";
+import type { RuntimeState } from "../state.js";
 
 export function emitLog(state: RuntimeState, entry: HyLogEntry): void {
   for (const callback of state.logCallbacks) {

@@ -3,5 +3,5 @@ export async function ensureExtableCore(scope: typeof globalThis): Promise<void>
   if (typeof holder.ExtableCore === "function") {
     return;
   }
-  await import("./extable-core");
+  await import("./extable-core.js");
 }

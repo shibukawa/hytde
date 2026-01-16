@@ -1,5 +1,5 @@
-import type { ErrorUiState, RuntimeState } from "../state";
-import type { HyError } from "../types";
+import type { ErrorUiState, RuntimeState } from "../state.js";
+import type { HyError } from "../types.js";
 
 export function createHyError(type: HyError["type"], message: string, detail?: HyError["detail"]): HyError {
   return {

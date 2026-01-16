@@ -1,4 +1,4 @@
-import type { ParsedRequestTarget } from "../types";
+import type { ParsedRequestTarget } from "../types.js";
 
 export function cleanupRequestTargets(targets: ParsedRequestTarget[]): void {
   for (const target of targets) {

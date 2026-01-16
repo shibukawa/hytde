@@ -1,4 +1,4 @@
-import type { ParsedRequestTarget } from "../types";
+import type { ParsedRequestTarget } from "../types.js";
 
 export type StreamGate = {
   promise: Promise<void>;

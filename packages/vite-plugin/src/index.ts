@@ -2,7 +2,7 @@ import type { Plugin, IndexHtmlTransformContext, ResolvedConfig } from "vite";
 import type { OutputAsset, OutputBundle } from "rollup";
 import { parseHTML } from "linkedom";
 import type { Dirent } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readdir, stat } from "node:fs/promises";
@@ -25,6 +25,7 @@ type HyTdePluginOptions = {
   pathMode?: "hash" | "path";
   manual?: boolean;
   inputPaths?: string[];
+  disableSSR?: boolean;
   /**
    * Enable Tailwind v4 processing for precompiled output.
    * - `true`: uses a virtual stylesheet with `@import "tailwindcss"`.
@@ -37,6 +38,8 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
   let rootDir = process.cwd();
   let resolvedConfig: ResolvedConfig | null = null;
   let tailwindSupport: Promise<TailwindSupportConfig | null> | null = null;
+  const ssrTemplates = new Map<string, string>();
+  const shouldEmitSsr = () => Boolean(resolvedConfig && resolvedConfig.command === "build" && options.disableSSR !== true);
 
   const corePlugin: Plugin = {
     name: "hytde",
@@ -106,7 +109,77 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
       };
       const support = tailwindSupport ?? resolveTailwindSupport(options, rootDir);
       tailwindSupport = support;
-      return precompileHtml(html, ctx, rootDir, resolveId, options, resolvedConfig, await support);
+      const emitSsr = Boolean(resolvedConfig && resolvedConfig.command === "build" && options.disableSSR !== true);
+      const result = await precompileHtml(
+        html,
+        ctx,
+        rootDir,
+        resolveId,
+        options,
+        resolvedConfig,
+        await support,
+        emitSsr
+      );
+      if (emitSsr && result.ssrTemplate && result.templateId) {
+        const fileName = result.templateId.replace(/\.html?$/, ".ssr.json");
+        ssrTemplates.set(fileName, JSON.stringify(result.ssrTemplate));
+      }
+      return result.html;
+    },
+    generateBundle(_options, bundle) {
+      if (!shouldEmitSsr()) {
+        ssrTemplates.clear();
+        return;
+      }
+      const emitted = new Set<string>();
+      for (const [fileName, source] of ssrTemplates.entries()) {
+        this.emitFile({ type: "asset", fileName, source });
+        emitted.add(fileName);
+      }
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "asset" || !output.fileName.endsWith(".html")) {
+          continue;
+        }
+        const templateId = output.fileName;
+        const ssrName = templateId.replace(/\.html?$/, ".ssr.json");
+        if (emitted.has(ssrName)) {
+          continue;
+        }
+        const source = readAssetSource(output);
+        if (!source) {
+          continue;
+        }
+        const ir = extractIrFromHtml(source);
+        if (!ir) {
+          continue;
+        }
+        const template = buildSlotifiedTemplate(source, ir, templateId);
+        this.emitFile({ type: "asset", fileName: ssrName, source: JSON.stringify(template) });
+        emitted.add(ssrName);
+      }
+      ssrTemplates.clear();
+    },
+    async writeBundle() {
+      if (!shouldEmitSsr() || !resolvedConfig) {
+        return;
+      }
+      const outDir = resolve(rootDir, resolvedConfig.build.outDir ?? "dist");
+      const htmlOutputs = await collectHtmlOutputs(outDir);
+      for (const htmlPath of htmlOutputs) {
+        const source = await readFile(htmlPath, "utf8").catch(() => null);
+        if (!source) {
+          continue;
+        }
+        const ir = extractIrFromHtml(source);
+        if (!ir) {
+          continue;
+        }
+        const templateId = toPosixPath(relative(outDir, htmlPath));
+        const template = buildSlotifiedTemplate(source, ir, templateId);
+        const ssrPath = htmlPath.replace(/\.html?$/, ".ssr.json");
+        await mkdir(dirname(ssrPath), { recursive: true });
+        await writeFile(ssrPath, JSON.stringify(template));
+      }
     },
     configureServer(server) {
       server.middlewares.use(async (req, _res, next) => {
@@ -158,6 +231,34 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
   return [corePlugin, tailwindLinkPlugin];
 }
 
+type PrecompileResult = {
+  html: string;
+  ssrTemplate?: SlotifiedTemplate;
+  templateId?: string | null;
+};
+
+type SlotifiedTemplate = {
+  version: 1;
+  templateId: string;
+  static: string[];
+  slots: SlotDescriptor[];
+  ir: IrDocument;
+  nodeMeta: Record<string, NodeMeta>;
+};
+
+type SlotDescriptor = {
+  id: string;
+  kind: "inner" | "outer";
+  html: string;
+};
+
+type NodeMeta = {
+  tag: string;
+  attrs: Record<string, string>;
+};
+
+type ElementLocation = { line: number; column: number };
+
 async function precompileHtml(
   html: string,
   ctx: IndexHtmlTransformContext | undefined,
@@ -165,12 +266,19 @@ async function precompileHtml(
   resolveId: (id: string, importer?: string) => Promise<{ id: string } | null>,
   options: HyTdePluginOptions,
   resolvedConfig: ResolvedConfig | null,
-  tailwindSupport: TailwindSupportConfig | null
-): Promise<string> {
+  tailwindSupport: TailwindSupportConfig | null,
+  emitSsr: boolean
+): Promise<PrecompileResult> {
   const doc = parseHtmlDocument(html);
   const basePath = resolveBasePath(ctx, rootDir);
   await resolveImports(doc, basePath, resolveId, rootDir);
-  const ir = parseDocumentToIr(doc);
+  const templateId = resolveTemplateId(ctx, rootDir);
+  const locationSnapshot = serializeDocument(doc);
+  const locationMap = buildElementLocationMap(doc, locationSnapshot);
+  const idGenerator = templateId
+    ? createStableIdGenerator(templateId, locationMap)
+    : undefined;
+  const ir = parseDocumentToIr(doc, { idGenerator });
   stripPrototypingArtifacts(doc);
   normalizeSelectAnchors(doc);
   applyTailwindSupport(doc, tailwindSupport);
@@ -181,7 +289,9 @@ async function precompileHtml(
   applyPathModeHandling(doc, ctx, options);
   injectParserSnapshot(doc, ir);
   replaceRuntimeImports(doc, ctx, options, resolvedConfig);
-  return serializeDocument(doc);
+  const htmlOutput = serializeDocument(doc);
+  const ssrTemplate = emitSsr && templateId ? buildSlotifiedTemplate(htmlOutput, ir, templateId) : undefined;
+  return { html: htmlOutput, ssrTemplate, templateId };
 }
 
 function applyPathModeHandling(
@@ -269,6 +379,23 @@ function parseHtmlDocument(html: string): Document {
   const { document, window } = parseHTML(html);
   ensureDomGlobals(window);
   return document as unknown as Document;
+}
+
+function extractIrFromHtml(html: string): IrDocument | null {
+  const doc = parseHtmlDocument(html);
+  const script = doc.getElementById(PARSER_SNAPSHOT_ID);
+  if (!script) {
+    return null;
+  }
+  const payload = script.textContent?.trim();
+  if (!payload) {
+    return null;
+  }
+  try {
+    return JSON.parse(payload) as IrDocument;
+  } catch {
+    return null;
+  }
 }
 
 function resolveBasePath(ctx: IndexHtmlTransformContext | undefined, rootDir: string): string {
@@ -715,6 +842,313 @@ function serializeDocument(doc: Document): string {
   return `${doctype}\n${html}`;
 }
 
+function resolveTemplateId(ctx: IndexHtmlTransformContext | undefined, rootDir: string): string | null {
+  if (ctx?.filename) {
+    return toPosixPath(relative(rootDir, ctx.filename));
+  }
+  if (ctx?.path) {
+    const cleaned = ctx.path.startsWith("/") ? ctx.path.slice(1) : ctx.path;
+    return cleaned || null;
+  }
+  return null;
+}
+
+function buildSlotifiedTemplate(html: string, ir: IrDocument, templateId: string): SlotifiedTemplate {
+  const doc = parseHtmlDocument(html);
+  const slotIds = collectSlotIds(ir);
+  const outerSlotIds = collectOuterSlotIds(ir);
+  const slotElements = collectSlotElements(doc, slotIds);
+  const { htmlWithMarkers, slots, nodeMeta } = replaceSlotsWithMarkers(doc, slotElements, outerSlotIds);
+  const staticParts = splitSlotMarkers(htmlWithMarkers, slots.length);
+  return {
+    version: 1,
+    templateId,
+    static: staticParts,
+    slots,
+    ir,
+    nodeMeta
+  };
+}
+
+function collectSlotIds(ir: IrDocument): Set<string> {
+  const ids = new Set<string>();
+  for (const binding of ir.textBindings) {
+    ids.add(binding.nodeId);
+  }
+  for (const binding of ir.attrBindings) {
+    ids.add(binding.nodeId);
+  }
+  for (const template of ir.forTemplates) {
+    ids.add(template.markerId);
+  }
+  for (const chain of ir.ifChains) {
+    ids.add(chain.anchorId);
+    for (const node of chain.nodes) {
+      ids.add(node.nodeId);
+    }
+  }
+  for (const table of ir.tables) {
+    ids.add(table.tableElementId);
+  }
+  for (const id of ir.dummyElementIds) {
+    ids.add(id);
+  }
+  return ids;
+}
+
+function collectOuterSlotIds(ir: IrDocument): Set<string> {
+  const ids = new Set<string>();
+  for (const template of ir.forTemplates) {
+    ids.add(template.markerId);
+  }
+  for (const chain of ir.ifChains) {
+    ids.add(chain.anchorId);
+    for (const node of chain.nodes) {
+      ids.add(node.nodeId);
+    }
+  }
+  for (const table of ir.tables) {
+    ids.add(table.tableElementId);
+  }
+  for (const id of ir.dummyElementIds) {
+    ids.add(id);
+  }
+  return ids;
+}
+
+function collectSlotElements(doc: Document, slotIds: Set<string>): Element[] {
+  const candidates = Array.from(doc.querySelectorAll("[id]"));
+  const selected = candidates.filter((element) => {
+    const id = element.getAttribute("id");
+    return id ? slotIds.has(id) : false;
+  });
+  return selected.filter((element) => !hasSlotAncestor(element, slotIds));
+}
+
+function hasSlotAncestor(element: Element, slotIds: Set<string>): boolean {
+  let current = element.parentElement;
+  while (current) {
+    const id = current.getAttribute("id");
+    if (id && slotIds.has(id)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function replaceSlotsWithMarkers(
+  doc: Document,
+  slotElements: Element[],
+  outerSlotIds: Set<string>
+): { htmlWithMarkers: string; slots: SlotDescriptor[]; nodeMeta: Record<string, NodeMeta> } {
+  const slots: SlotDescriptor[] = [];
+  const nodeMeta: Record<string, NodeMeta> = {};
+  slotElements.forEach((element, index) => {
+    const id = element.getAttribute("id") ?? "";
+    const marker = `hytde-slot:${index}`;
+    const comment = doc.createComment(marker);
+    const kind: SlotDescriptor["kind"] = outerSlotIds.has(id) ? "outer" : "inner";
+    slots.push({ id, kind, html: element.outerHTML });
+    nodeMeta[id] = {
+      tag: element.tagName.toLowerCase(),
+      attrs: collectAttributes(element)
+    };
+    element.replaceWith(comment);
+  });
+  const htmlWithMarkers = serializeDocument(doc);
+  return { htmlWithMarkers, slots, nodeMeta };
+}
+
+function collectAttributes(element: Element): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  for (const name of element.getAttributeNames()) {
+    const value = element.getAttribute(name);
+    if (value != null) {
+      attrs[name] = value;
+    }
+  }
+  return attrs;
+}
+
+function splitSlotMarkers(html: string, slotCount: number): string[] {
+  const parts: string[] = [];
+  let cursor = 0;
+  for (let index = 0; index < slotCount; index += 1) {
+    const marker = `<!--hytde-slot:${index}-->`;
+    const matchIndex = html.indexOf(marker, cursor);
+    if (matchIndex === -1) {
+      break;
+    }
+    parts.push(html.slice(cursor, matchIndex));
+    cursor = matchIndex + marker.length;
+  }
+  parts.push(html.slice(cursor));
+  return parts;
+}
+
+type ElementLocationMaps = {
+  locations: WeakMap<Element, ElementLocation>;
+};
+
+function buildElementLocationMap(doc: Document, html: string): ElementLocationMaps {
+  const elements = Array.from(doc.querySelectorAll("*"));
+  const locations = collectStartTagLocations(html);
+  const locationMap = new WeakMap<Element, ElementLocation>();
+  elements.forEach((element, index) => {
+    const location = locations[index];
+    if (location) {
+      locationMap.set(element, location);
+    }
+  });
+  return { locations: locationMap };
+}
+
+function createStableIdGenerator(
+  templateId: string,
+  maps: ElementLocationMaps
+): (element: Element) => string {
+  let fallbackCounter = 0;
+  return (element: Element) => {
+    const location = maps.locations.get(element);
+    const tag = element.tagName ? element.tagName.toLowerCase() : "node";
+    const key = location
+      ? `${templateId}:${location.line}:${location.column}:${tag}`
+      : `${templateId}:${tag}:gen:${fallbackCounter++}`;
+    return `hy-id-${hashString(key)}`;
+  };
+}
+
+function collectStartTagLocations(html: string): ElementLocation[] {
+  const locations: ElementLocation[] = [];
+  const lower = html.toLowerCase();
+  let line = 1;
+  let column = 1;
+  let cursor = 0;
+
+  const advanceBy = (chunk: string) => {
+    for (const char of chunk) {
+      if (char === "\n") {
+        line += 1;
+        column = 1;
+      } else {
+        column += 1;
+      }
+    }
+  };
+
+  while (cursor < html.length) {
+    const char = html[cursor];
+    if (char === "\n") {
+      line += 1;
+      column = 1;
+      cursor += 1;
+      continue;
+    }
+    if (char !== "<") {
+      column += 1;
+      cursor += 1;
+      continue;
+    }
+    const next = html[cursor + 1] ?? "";
+    if (next === "!") {
+      if (lower.startsWith("<!--", cursor)) {
+        const end = lower.indexOf("-->", cursor + 4);
+        const endIndex = end === -1 ? html.length : end + 3;
+        advanceBy(html.slice(cursor, endIndex));
+        cursor = endIndex;
+        continue;
+      }
+      const end = html.indexOf(">", cursor + 2);
+      const endIndex = end === -1 ? html.length : end + 1;
+      advanceBy(html.slice(cursor, endIndex));
+      cursor = endIndex;
+      continue;
+    }
+    if (next === "/") {
+      const end = html.indexOf(">", cursor + 2);
+      const endIndex = end === -1 ? html.length : end + 1;
+      advanceBy(html.slice(cursor, endIndex));
+      cursor = endIndex;
+      continue;
+    }
+
+    const tagLine = line;
+    const tagColumn = column;
+    const tagEnd = findTagEnd(html, cursor + 1);
+    const tagContent = html.slice(cursor + 1, tagEnd);
+    const tagName = readTagName(tagContent);
+    if (tagName) {
+      locations.push({ line: tagLine, column: tagColumn });
+    }
+    const endIndex = tagEnd + 1;
+    advanceBy(html.slice(cursor, endIndex));
+    cursor = endIndex;
+
+    if (!tagName) {
+      continue;
+    }
+    if (tagName === "script" || tagName === "style") {
+      if (/\/\s*$/.test(tagContent)) {
+        continue;
+      }
+      const closeTag = `</${tagName}`;
+      const closeIndex = lower.indexOf(closeTag, cursor);
+      if (closeIndex === -1) {
+        continue;
+      }
+      const closeEnd = lower.indexOf(">", closeIndex);
+      const endTagIndex = closeEnd === -1 ? html.length : closeEnd + 1;
+      advanceBy(html.slice(cursor, endTagIndex));
+      cursor = endTagIndex;
+    }
+  }
+
+  return locations;
+}
+
+function readTagName(content: string): string | null {
+  let cursor = 0;
+  while (cursor < content.length && /\s/.test(content[cursor])) {
+    cursor += 1;
+  }
+  const match = content.slice(cursor).match(/^([A-Za-z0-9:-]+)/);
+  if (!match) {
+    return null;
+  }
+  return match[1].toLowerCase();
+}
+
+function findTagEnd(html: string, start: number): number {
+  let quote: string | null = null;
+  let cursor = start;
+  while (cursor < html.length) {
+    const char = html[cursor];
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else if (char === "\\" && cursor + 1 < html.length) {
+        cursor += 1;
+      }
+    } else if (char === "\"" || char === "'") {
+      quote = char;
+    } else if (char === ">") {
+      return cursor;
+    }
+    cursor += 1;
+  }
+  return html.length - 1;
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 async function resolveDynamicTemplate(rootDir: string, urlPath: string): Promise<string | null> {
   const segments = urlPath.split("/").filter(Boolean);
   if (segments.length === 0) {
@@ -1111,6 +1545,16 @@ async function collectHtmlEntries(rootDir: string, inputPaths?: string[]): Promi
   return results;
 }
 
+async function collectHtmlOutputs(outDir: string): Promise<string[]> {
+  const results: string[] = [];
+  const statInfo = await statSafe(outDir);
+  if (!statInfo || !statInfo.isDirectory()) {
+    return results;
+  }
+  await walkHtmlOutputs(outDir, results);
+  return results;
+}
+
 async function walkHtmlEntries(dir: string, results: string[]): Promise<void> {
   const entries = await readDirSafe(dir);
   for (const entry of entries) {
@@ -1120,6 +1564,20 @@ async function walkHtmlEntries(dir: string, results: string[]): Promise<void> {
         continue;
       }
       await walkHtmlEntries(nextPath, results);
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith(".html")) {
+      results.push(nextPath);
+    }
+  }
+}
+
+async function walkHtmlOutputs(dir: string, results: string[]): Promise<void> {
+  const entries = await readDirSafe(dir);
+  for (const entry of entries) {
+    const nextPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await walkHtmlOutputs(nextPath, results);
       continue;
     }
     if (entry.isFile() && entry.name.endsWith(".html")) {

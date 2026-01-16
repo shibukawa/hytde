@@ -1,21 +1,22 @@
-import { ensureTableApi, ensureTablePlugin } from "./table/runtime";
-import { installTransformApi } from "./state/transforms";
-import { ensureGlobals, emitPathDiagnostics, initHyPathParams, syncHyPathParams } from "./state/globals";
-import { getRuntimeState, getRuntimeStateForDoc, isMockDisabled } from "./runtime-state";
-import { setupPlugins } from "./utils/plugins";
-import { setupNavigationHandlers } from "./action/navigation";
-import { setupFormHandlers } from "./form/forms";
-import { setupAsyncUploadHandlers } from "./uploader/async-upload";
-import { setupFormStateHandlers } from "./form/form-state";
-import { setupActionHandlers, setupFillActionHandlers } from "./action/actions";
-import { setupAutoSubmitHandlers } from "./form/auto-submit";
-import { setupHistoryHandlers, hasHistoryAutoSubmit, runHistoryAutoSubmits } from "./history/runtime";
-import { renderDocument } from "./render";
-import { handleRequest } from "./requests/runtime";
-import type { ParserAdapter } from "./types";
-import type { IrDocument } from "./ir";
-import { buildParsedDocumentFromIr } from "./ir";
-import type { RuntimeState } from "./state";
+import { ensureTableApi, ensureTablePlugin } from "./table/runtime.js";
+import { installTransformApi } from "./state/transforms.js";
+import { ensureGlobals, emitPathDiagnostics, initHyPathParams, syncHyPathParams } from "./state/globals.js";
+import { getRuntimeState, getRuntimeStateForDoc, isMockDisabled } from "./runtime-state.js";
+import { setupPlugins } from "./utils/plugins.js";
+import { setupNavigationHandlers } from "./action/navigation.js";
+import { setupFormHandlers } from "./form/forms.js";
+import { setupAsyncUploadHandlers } from "./uploader/async-upload.js";
+import { setupFormStateHandlers } from "./form/form-state.js";
+import { setupActionHandlers, setupFillActionHandlers } from "./action/actions.js";
+import { setupAutoSubmitHandlers } from "./form/auto-submit.js";
+import { setupHistoryHandlers, hasHistoryAutoSubmit, runHistoryAutoSubmits } from "./history/runtime.js";
+import { renderDocument } from "./render/index.js";
+import { handleRequest } from "./requests/runtime.js";
+import type { ParserAdapter } from "./types.js";
+import type { IrDocument } from "./ir.js";
+import { buildParsedDocumentFromIr } from "./ir.js";
+import type { RuntimeState } from "./state.js";
+import { applySsrStateToGlobals, readSsrState, seedPrefetchCache } from "./ssr.js";
 
 export type {
   AsyncUploadEntry,
@@ -43,8 +44,8 @@ export type {
   PluginState,
   PluginWatchTarget,
   RuntimeGlobals
-} from "./types";
-export type { IrDocument } from "./ir";
+} from "./types.js";
+export type { IrDocument } from "./ir.js";
 
 export { initHyPathParams };
 
@@ -72,6 +73,10 @@ export function createRuntime(parser: ParserAdapter): Runtime {
     init(doc: Document, ir: IrDocument) {
       const parsed = buildParsedDocumentFromIr(doc, ir);
       const scope = doc.defaultView ?? globalThis;
+      const ssrState = readSsrState(doc);
+      if (ssrState) {
+        applySsrStateToGlobals(scope, ssrState);
+      }
       const globals = ensureGlobals(scope);
       ensureTableApi(scope);
       ensureTablePlugin(scope, getRuntimeStateForDoc);
@@ -81,6 +86,9 @@ export function createRuntime(parser: ParserAdapter): Runtime {
       }
 
       const state = getRuntimeState(doc, globals, parsed, parser);
+      if (ssrState) {
+        seedPrefetchCache(state, ssrState);
+      }
       void isMockDisabled;
       setupPlugins(state);
       syncHyPathParams(state);

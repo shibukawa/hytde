@@ -1,10 +1,10 @@
 import type { ColumnSchema, CoreInit, CoreOptions, ExtableCore, Schema } from "@extable/core";
-import { ensureExtableCore } from "./loader";
-import { resolvePath } from "../utils/path";
-import { parseSelectorTokens } from "../utils/selectors";
-import { createHyError, pushError } from "../errors/ui";
-import type { HyError, HyGlobals, HytdePlugin, PluginParseContext, PluginRenderContext, PluginState } from "../types";
-import type { RuntimeState } from "../state";
+import { ensureExtableCore } from "./loader.js";
+import { resolvePath } from "../utils/path.js";
+import { parseSelectorTokens } from "../utils/selectors.js";
+import { createHyError, pushError } from "../errors/ui.js";
+import type { HyError, HyGlobals, HytdePlugin, PluginParseContext, PluginRenderContext, PluginState } from "../types.js";
+import type { RuntimeState } from "../state.js";
 
 type TableRegistry = {
   formulaRegistry: Map<string, Map<string, unknown>>;

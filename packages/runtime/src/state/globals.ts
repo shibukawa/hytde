@@ -1,11 +1,12 @@
-import { parseHyPathMeta } from "../parse/hy-path";
-import { parseParams, parseSearchParams, parseHashParams } from "../parse/params";
-import { normalizePathPattern, stripQueryHash } from "../utils/path-pattern";
-import { ensureDefaultTransforms, installTransformApi } from "./transforms";
-import type { HyGlobals, HyLogEntry, RuntimeGlobals } from "../types";
-import type { HyPathDiagnostics, HyPathMeta } from "../state";
-import { emitLog } from "../utils/logging";
-import type { RuntimeState } from "../state";
+import { parseHyPathMeta } from "../parse/hy-path.js";
+import { parseParams, parseSearchParams, parseHashParams } from "../parse/params.js";
+import { normalizePathPattern, stripQueryHash } from "../utils/path-pattern.js";
+import { ensureDefaultTransforms, installTransformApi } from "./transforms.js";
+import { initSsr } from "../ssr.js";
+import type { HyGlobals, HyLogEntry, RuntimeGlobals } from "../types.js";
+import type { HyPathDiagnostics, HyPathMeta } from "../state.js";
+import { emitLog } from "../utils/logging.js";
+import type { RuntimeState } from "../state.js";
 
 export const RENDER_CALLBACK_KEY = "__hytdeRenderCallbacks";
 export const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
@@ -49,6 +50,14 @@ export function ensureGlobals(scope: typeof globalThis): RuntimeGlobals {
   if (!hy.onLog) {
     hy.onLog = (callback: (entry: HyLogEntry) => void) => {
       logCallbacks.push(callback);
+    };
+  }
+  if (!hy.initSsr) {
+    hy.initSsr = () => {
+      const doc = scope.document ?? (typeof document !== "undefined" ? document : null);
+      if (doc) {
+        initSsr(doc);
+      }
     };
   }
   if (!Array.isArray(hy.uploading)) {

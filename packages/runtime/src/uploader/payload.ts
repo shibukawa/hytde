@@ -1,4 +1,4 @@
-import type { FileSubmitValue } from "./types";
+import type { FileSubmitValue } from "./types.js";
 
 export function buildAsyncUploadPayload(
   basePayload: Record<string, unknown>,

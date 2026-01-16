@@ -9,7 +9,7 @@ import type {
   PluginState,
   PluginWatchTarget,
   RuntimeGlobals
-} from "./types";
+} from "./types.js";
 
 export type AsyncUploadMode = "s3" | "simple";
 export type AfterSubmitAction = "clear" | "keep";
