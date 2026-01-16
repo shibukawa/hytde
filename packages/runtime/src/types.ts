@@ -83,6 +83,7 @@ export interface HyGlobals {
   onRenderComplete?: (callback: () => void) => void;
   onLog?: (callback: (entry: HyLogEntry) => void) => void;
   onError?: (errors: HyError[]) => void;
+  initSsr?: () => void;
   plugins?: HytdePlugin[];
   registerPlugin?: (plugin: HytdePlugin) => void;
   registerTransform?: (

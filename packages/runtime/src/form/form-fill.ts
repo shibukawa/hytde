@@ -1,6 +1,6 @@
-import type { RuntimeState } from "../state";
-import type { ParsedFillTarget } from "../types";
-import { evaluateExpression } from "../state/expression";
+import type { RuntimeState } from "../state.js";
+import type { ParsedFillTarget } from "../types.js";
+import { evaluateExpression } from "../state/expression.js";
 
 export function applyFillTargets(targets: ParsedFillTarget[], state: RuntimeState, scope: Array<Record<string, unknown>>): void {
   if (targets.length === 0) {

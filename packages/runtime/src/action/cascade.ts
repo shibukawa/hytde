@@ -1,9 +1,9 @@
-import { createHyError, pushError } from "../errors/ui";
-import { emitLog } from "../utils/logging";
-import { parseSelectorTokens } from "../utils/selectors";
-import type { CascadeDisabledState, CascadeState } from "../state";
-import type { ParsedDocument, ParsedRequestTarget } from "../types";
-import type { RuntimeState } from "../state";
+import { createHyError, pushError } from "../errors/ui.js";
+import { emitLog } from "../utils/logging.js";
+import { parseSelectorTokens } from "../utils/selectors.js";
+import type { CascadeDisabledState, CascadeState } from "../state.js";
+import type { ParsedDocument, ParsedRequestTarget } from "../types.js";
+import type { RuntimeState } from "../state.js";
 
 export function buildCascadeState(state: RuntimeState | null, parsed: ParsedDocument): CascadeState {
   const storeToSelects = new Map<string, Set<HTMLSelectElement>>();

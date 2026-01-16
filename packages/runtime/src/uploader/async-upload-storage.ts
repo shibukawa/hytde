@@ -3,9 +3,9 @@ import type {
   AsyncUploadPendingSubmit,
   AsyncUploadSession,
   RuntimeState
-} from "../state";
-import type { AsyncUploadStatus, ParsedRequestTarget } from "../types";
-import { emitAsyncUploadError } from "./async-upload-errors";
+} from "../state.js";
+import type { AsyncUploadStatus, ParsedRequestTarget } from "../types.js";
+import { emitAsyncUploadError } from "./async-upload-errors.js";
 
 const ASYNC_UPLOAD_DB_NAME = "hytde-async-upload";
 const ASYNC_UPLOAD_DB_VERSION = 1;

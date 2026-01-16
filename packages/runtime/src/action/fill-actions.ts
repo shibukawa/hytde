@@ -1,8 +1,8 @@
-import { createHyError, pushError } from "../errors/ui";
-import { emitLog } from "../utils/logging";
-import { isFormControl } from "../form/form-controls";
-import type { ParsedRequestTarget } from "../types";
-import type { RuntimeState } from "../state";
+import { createHyError, pushError } from "../errors/ui.js";
+import { emitLog } from "../utils/logging.js";
+import { isFormControl } from "../form/form-controls.js";
+import type { ParsedRequestTarget } from "../types.js";
+import type { RuntimeState } from "../state.js";
 
 export function applyFillActionIfNeeded(target: ParsedRequestTarget, state: RuntimeState): void {
   const control = target.fillTargetElement;

@@ -1,18 +1,18 @@
-import { buildAsyncUploadPayload } from "./payload";
-import { collectFormValuesWithoutFiles, formEntriesToPayload } from "../forms/values";
+import { buildAsyncUploadPayload } from "./payload.js";
+import { collectFormValuesWithoutFiles, formEntriesToPayload } from "../forms/values.js";
 import type {
   AsyncUploadConfig,
   AsyncUploadFileState,
   AsyncUploadSession,
   RuntimeState
-} from "../state";
-import type { ParsedAsyncUploadForm, ParsedRequestTarget } from "../types";
-import { emitLog } from "../utils/logging";
-import { resolveRequestUrl } from "../requests/runtime";
-import { disableFormControls, restoreFormControls } from "../form/form-state";
-import { emitAsyncUploadError } from "./async-upload-errors";
-import { ASYNC_UPLOAD_CLEAR_DELAY_MS, ASYNC_UPLOAD_MAX_CONCURRENCY } from "../state/constants";
-import type { AsyncUploadFileRecord } from "./async-upload-storage";
+} from "../state.js";
+import type { ParsedAsyncUploadForm, ParsedRequestTarget } from "../types.js";
+import { emitLog } from "../utils/logging.js";
+import { resolveRequestUrl } from "../requests/runtime.js";
+import { disableFormControls, restoreFormControls } from "../form/form-state.js";
+import { emitAsyncUploadError } from "./async-upload-errors.js";
+import { ASYNC_UPLOAD_CLEAR_DELAY_MS, ASYNC_UPLOAD_MAX_CONCURRENCY } from "../state/constants.js";
+import type { AsyncUploadFileRecord } from "./async-upload-storage.js";
 import {
   clearPendingSubmission,
   deleteStoredFile,
@@ -21,14 +21,14 @@ import {
   storeFileChunks,
   storeFileRecord,
   writePendingSubmission
-} from "./async-upload-storage";
-import { removeAsyncUploadEntry, upsertAsyncUploadEntry } from "./async-upload-state";
+} from "./async-upload-storage.js";
+import { removeAsyncUploadEntry, upsertAsyncUploadEntry } from "./async-upload-state.js";
 import {
   finalizeUploads,
   markAsyncUploadFailed,
   maybeSubmitPendingAsyncUpload,
   startAsyncUploadForFile
-} from "./async-upload-transfer";
+} from "./async-upload-transfer.js";
 
 export function setupAsyncUploadHandlers(state: RuntimeState): void {
   const forms = state.parsed.asyncUploadForms;
@@ -157,7 +157,7 @@ function createUploadUuid(): string {
   return `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export { emitAsyncUploadError } from "./async-upload-errors";
+export { emitAsyncUploadError } from "./async-upload-errors.js";
 export async function scheduleClearAfterSubmit(
   form: HTMLFormElement,
   session: AsyncUploadSession,
@@ -364,8 +364,32 @@ export async function prepareAsyncUploadSubmission(
   if (!session || target.method === "GET") {
     return { blocked: false };
   }
-  const files = Array.from(session.files.values());
+  let files = Array.from(session.files.values());
   if (files.length === 0) {
+    const inputs = Array.from(form.elements).filter(
+      (element): element is HTMLInputElement =>
+        element instanceof HTMLInputElement &&
+        element.type === "file" &&
+        Boolean(element.files && element.files.length > 0)
+    );
+    if (inputs.length > 0) {
+      for (const input of inputs) {
+        await handleFileInputChange(input, session, state);
+      }
+      files = Array.from(session.files.values());
+      if (files.length > 0) {
+        const payload = formEntriesToPayload(collectFormValuesWithoutFiles(form));
+        const actionUrl = resolveRequestUrl(target, state).value;
+        writePendingSubmission(session, { target, payload, method: target.method, actionUrl }, state);
+        emitLog(state, {
+          type: "info",
+          message: "upload.pending",
+          detail: { uploadUuid: session.config.uploadUuid, formId: session.config.formId ?? undefined },
+          timestamp: Date.now()
+        });
+        return { blocked: true };
+      }
+    }
     return { blocked: false };
   }
   const failed = files.find((file) => file.status === "failed");

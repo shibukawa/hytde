@@ -1,11 +1,11 @@
-import { buildAsyncUploadPayload } from "./payload";
-import type { FileSubmitValue } from "./types";
-import type { AsyncUploadFileState, AsyncUploadSession, RuntimeState } from "../state";
-import { emitLog } from "../utils/logging";
-import { emitAsyncUploadError } from "./async-upload-errors";
-import { clearPendingSubmission, deleteStoredChunk, loadChunkBlob, storeFileRecord } from "./async-upload-storage";
-import { upsertAsyncUploadEntry } from "./async-upload-state";
-import { handleRequest } from "../requests/runtime";
+import { buildAsyncUploadPayload } from "./payload.js";
+import type { FileSubmitValue } from "./types.js";
+import type { AsyncUploadFileState, AsyncUploadSession, RuntimeState } from "../state.js";
+import { emitLog } from "../utils/logging.js";
+import { emitAsyncUploadError } from "./async-upload-errors.js";
+import { clearPendingSubmission, deleteStoredChunk, loadChunkBlob, storeFileRecord } from "./async-upload-storage.js";
+import { upsertAsyncUploadEntry } from "./async-upload-state.js";
+import { handleRequest } from "../requests/runtime.js";
 
 export async function startAsyncUploadForFile(
   fileState: AsyncUploadFileState,

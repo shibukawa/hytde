@@ -364,9 +364,14 @@ export function parseDocument(doc: Document): ParsedDocument {
   };
 }
 
-export function parseDocumentToIr(doc: Document): IrDocument {
+export type IdGenerator = (element: Element) => string | null;
+
+export function parseDocumentToIr(
+  doc: Document,
+  options: { idGenerator?: IdGenerator } = {}
+): IrDocument {
   const parsed = parseDocument(doc);
-  const resolveId = createIdResolver(doc);
+  const resolveId = createIdResolver(doc, options.idGenerator);
 
   return {
     executionMode: parsed.executionMode,
@@ -2361,7 +2366,7 @@ function createAnchorElement(doc: Document, kind: "for" | "if"): Element {
   return anchor;
 }
 
-function createIdResolver(doc: Document): (element: Element) => NodeId {
+function createIdResolver(doc: Document, idGenerator?: IdGenerator): (element: Element) => NodeId {
   let counter = 0;
   const prefix = "hy-id-";
   const used = new Set<string>();
@@ -2381,6 +2386,12 @@ function createIdResolver(doc: Document): (element: Element) => NodeId {
     if (existing && existing.trim() !== "") {
       used.add(existing);
       return existing;
+    }
+    const generated = idGenerator?.(element) ?? "";
+    if (generated && !used.has(generated) && !doc.getElementById(generated)) {
+      used.add(generated);
+      element.setAttribute("id", generated);
+      return generated;
     }
     const id = nextId();
     element.setAttribute("id", id);

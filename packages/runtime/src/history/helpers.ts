@@ -1,4 +1,4 @@
-import type { RuntimeState } from "../state";
+import type { RuntimeState } from "../state.js";
 
 export function getHistoryForms(state: RuntimeState): HTMLFormElement[] {
   return state.parsed.historyForms.map((entry) => entry.form);

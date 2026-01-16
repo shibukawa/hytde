@@ -1,5 +1,5 @@
-import { cleanupRequestTargets } from "./cleanup";
-import { APPEND_MARK_ATTR, applyHyCloak, clearAppendMarkers, removeDummyNodes } from "./utils";
+import { cleanupRequestTargets } from "./cleanup.js";
+import { APPEND_MARK_ATTR, applyHyCloak, clearAppendMarkers, removeDummyNodes } from "./utils.js";
 import type {
   ExpressionInput,
   ParsedAttrBinding,
@@ -10,14 +10,14 @@ import type {
   ParsedSubtree,
   ParsedTextBinding,
   PluginChange
-} from "../types";
-import type { RuntimeState } from "../state";
-import { emitLog, emitRenderComplete } from "../utils/logging";
-import { runPluginRender } from "../utils/plugins";
-import { setupFillActionHandlers } from "../action/actions";
-import { applyFillTargets } from "../form/form-fill";
-import { evaluateExpression, interpolateTemplate, resolveUrlTemplate } from "../state/expression";
-import { NAV_FALLBACK_ATTR } from "../state/constants";
+} from "../types.js";
+import type { RuntimeState } from "../state.js";
+import { emitLog, emitRenderComplete } from "../utils/logging.js";
+import { runPluginRender } from "../utils/plugins.js";
+import { setupFillActionHandlers } from "../action/actions.js";
+import { applyFillTargets } from "../form/form-fill.js";
+import { evaluateExpression, interpolateTemplate, resolveUrlTemplate } from "../state/expression.js";
+import { NAV_FALLBACK_ATTR } from "../state/constants.js";
 
 export type ScopeStack = Array<Record<string, unknown>>;
 
@@ -63,6 +63,7 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
   if (!template.marker.isConnected) {
     return;
   }
+  const markerId = template.marker.getAttribute("id") ?? "";
   const select =
     template.template.tagName === "OPTION" && template.marker.parentNode instanceof HTMLSelectElement
       ? template.marker.parentNode
@@ -102,6 +103,9 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
     for (let index = template.rendered.length; index < items.length; index += 1) {
       const item = items[index];
       const clone = template.template.cloneNode(true) as Element;
+      if (markerId) {
+        clone.setAttribute("data-hy-for", markerId);
+      }
       clone.setAttribute(APPEND_MARK_ATTR, "true");
       state.appendMarkedElements.add(clone);
       const nextScope = [...scope, { [template.varName]: item }];
@@ -129,6 +133,9 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
   let insertAfter: Node = template.marker;
   for (const item of items) {
     const clone = template.template.cloneNode(true) as Element;
+    if (markerId) {
+      clone.setAttribute("data-hy-for", markerId);
+    }
     const nextScope = [...scope, { [template.varName]: item }];
     const parsedClone = state.parser.parseSubtree(clone);
     renderParsedSubtree(parsedClone, state, nextScope);

@@ -4,6 +4,7 @@
     { "path": "packages/runtime" },
     { "path": "packages/parser" },
     { "path": "packages/precompile" },
+    { "path": "packages/ssr" },
     { "path": "packages/vite-plugin" },
     { "path": "packages/standalone" },
     { "path": "packages/demo" }

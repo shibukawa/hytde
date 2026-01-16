@@ -1,16 +1,16 @@
-import { parseHashParams } from "../parse/params";
-import { parseSelectorTokensStrict } from "../utils/selectors";
-import { createHyError, pushError } from "../errors/ui";
-import type { RuntimeGlobals, ExpressionInput, ParsedExpression } from "../types";
-import type { RuntimeState } from "../state";
-import type { JsonScalar } from "../types";
-import { emitLog, emitExpressionError, emitTransformError } from "../utils/logging";
+import { parseHashParams } from "../parse/params.js";
+import { parseSelectorTokensStrict } from "../utils/selectors.js";
+import { createHyError, pushError } from "../errors/ui.js";
+import type { RuntimeGlobals, ExpressionInput, ParsedExpression } from "../types.js";
+import type { RuntimeState } from "../state.js";
+import type { JsonScalar } from "../types.js";
+import { emitLog, emitExpressionError, emitTransformError } from "../utils/logging.js";
 import {
   getTransformRegistry,
   isJsonScalar,
   matchesInputType,
   parseTransform
-} from "./transforms";
+} from "./transforms.js";
 
 export type ScopeStack = Array<Record<string, unknown>>;
 

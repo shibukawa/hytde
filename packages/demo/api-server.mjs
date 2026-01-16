@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.HYTDE_DEMO_API_PORT ?? "8787");
 const demoDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -66,6 +67,8 @@ registerRoute("GET", "/api/users/101/detail.json", "/mocks/users/101-detail.json
 registerRoute("GET", "/api/users/102/detail.json", "/mocks/users/102-detail.json");
 registerRoute("GET", "/api/users", "/mocks/path-parameter-users.json");
 registerRoute("GET", "/api/notifications", "/mocks/notifications.json");
+registerRoute("GET", "/api/notifications/empty", "/mocks/notifications-empty.json");
+registerRoute("GET", "/api/notifications/single", "/mocks/notifications-single.json");
 registerRoute("GET", "/api/orders", "/mocks/table-orders.json");
 registerRoute("GET", "/api/categories", "/mocks/cascading/categories.json");
 registerRoute("GET", "/api/subcategories/a1", "/mocks/cascading/subcategories-a1.json");
@@ -88,6 +91,82 @@ registerRoute("POST", "/api/users/register", "/mocks/register.json", 201);
 registerRoute("POST", "/api/users/1", "/mocks/user.json", 201);
 registerRoute("POST", "/api/users/1/fail", "/mocks/user-error.json", 422);
 registerRoute("POST", "/api/users/1/avatar", "/mocks/user.json", 204);
+
+function normalizeToken(value) {
+  return String(value ?? "").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function buildS3Path(uploadUuid, inputName, fileName = "file.bin") {
+  return `/s3/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
+}
+
+function buildSimplePath(uploadUuid, inputName, fileName = "file.bin") {
+  return `/simple/${normalizeToken(uploadUuid)}/${normalizeToken(inputName)}/${normalizeToken(fileName)}`;
+}
+
+app.post("/api/uploads/s3/init", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const files = Array.isArray(body?.files) && body.files.length > 0 ? body.files : [{ inputName: "file", chunks: 1, fileName: "file.bin" }];
+  const uploads = files.map((file) => {
+    const inputName = String(file?.inputName ?? "file");
+    const chunks = Number(file?.chunks ?? 1);
+    const fileName = String(file?.fileName ?? "file.bin");
+    const uploadId = randomUUID();
+    return {
+      inputName,
+      uploadId,
+      s3Path: buildS3Path(uploadId, inputName, fileName),
+      parts: Array.from({ length: Math.max(1, chunks) }, (_, index) => ({
+        partNumber: index + 1,
+        url: `/api/uploads/s3/part/${uploadId}/${encodeURIComponent(inputName)}/${index + 1}`
+      }))
+    };
+  });
+  return c.json({ uploads });
+});
+
+app.put("/api/uploads/s3/part/:uploadUuid/:inputName/:part", async (c) => {
+  const part = c.req.param("part");
+  c.header("ETag", `etag-${part}`);
+  return c.body(null, 200);
+});
+
+app.post("/api/uploads/s3/complete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const uploads = Array.isArray(body?.uploads) ? body.uploads : [];
+  const files = uploads.map((upload, index) => {
+    const inputName = String(upload?.inputName ?? "file");
+    const s3Path =
+      (typeof upload?.path === "string" && upload.path.length > 0
+        ? upload.path
+        : typeof upload?.s3Path === "string" && upload.s3Path.length > 0
+          ? upload.s3Path
+          : buildS3Path(randomUUID(), inputName, `file-${index + 1}`)) ?? "";
+    const etags = Array.isArray(upload?.parts)
+      ? upload.parts.map((part) => part?.ETag ?? part?.etag ?? null).filter((etag) => typeof etag === "string" && etag.length > 0)
+      : [];
+    return { inputName, fileId: s3Path, s3Path, etags };
+  });
+  return c.json({ files });
+});
+
+app.post("/api/uploads/simple", async (c) => {
+  const body = await c.req.parseBody().catch(() => ({}));
+  const inputName = String(body?.inputName ?? "file");
+  const fileName = String(body?.fileName ?? "file.bin");
+  const path = buildSimplePath(randomUUID(), inputName, fileName);
+  return c.json({ inputName, fileId: path, path });
+});
+
+app.post("/api/uploads/submit/:mode", async (c) => {
+  const contentType = c.req.header("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const payload = await c.req.json().catch(() => ({}));
+    return c.json(payload ?? {});
+  }
+  const formData = await c.req.parseBody().catch(() => ({}));
+  return c.json(formData ?? {});
+});
 
 app.all("*", (c) => c.json({ error: "not_found" }, 404));
 

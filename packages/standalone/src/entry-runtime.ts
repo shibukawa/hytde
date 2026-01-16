@@ -77,8 +77,13 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   if (ir.executionMode !== "disable" && tableCount > 0) {
     ensureExtableStylesheet(doc);
   }
-  await registerMetaMockHandlers(doc, ir);
-  await startMockServiceWorkerIfNeeded(doc, ir.executionMode);
+  const hasSsrState = Boolean(doc.getElementById("hy-ssr-state"));
+  if (!hasSsrState) {
+    await registerMetaMockHandlers(doc, ir);
+    await startMockServiceWorkerIfNeeded(doc, ir.executionMode);
+  } else {
+    console.info("[hytde] runtime:msw:skip", { reason: "ssr" });
+  }
   console.debug("[hytde] runtime:data:initial", { requests: ir.requestTargets.length });
   runtime.init(doc, ir);
   if (errors.length > 0) {

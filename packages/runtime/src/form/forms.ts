@@ -1,7 +1,7 @@
-import type { ParsedRequestTarget } from "../types";
-import type { RuntimeState } from "../state";
-import { emitLog } from "../utils/logging";
-import { handleRequest } from "../requests/runtime";
+import type { ParsedRequestTarget } from "../types.js";
+import type { RuntimeState } from "../state.js";
+import { emitLog } from "../utils/logging.js";
+import { handleRequest } from "../requests/runtime.js";
 
 export function setupFormHandlers(state: RuntimeState): void {
   const formTargets = new Map<HTMLFormElement, ParsedRequestTarget>();

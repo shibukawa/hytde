@@ -1,7 +1,7 @@
-import { emitLog } from "../utils/logging";
-import { handleRequest } from "../requests/runtime";
-import { isFormControl } from "./form-controls";
-import type { AutoSubmitState, RuntimeState } from "../state";
+import { emitLog } from "../utils/logging.js";
+import { handleRequest } from "../requests/runtime.js";
+import { isFormControl } from "./form-controls.js";
+import type { AutoSubmitState, RuntimeState } from "../state.js";
 
 export function setupAutoSubmitHandlers(state: RuntimeState): void {
   const configs = state.parsed.autoSubmitForms;

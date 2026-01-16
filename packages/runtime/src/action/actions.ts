@@ -1,13 +1,13 @@
-import { emitLog } from "../utils/logging";
-import { isFormControl } from "../form/form-controls";
-import type { ParsedFillAction, ParsedRequestTarget } from "../types";
-import type { RuntimeState } from "../state";
+import { emitLog } from "../utils/logging.js";
+import { isFormControl } from "../form/form-controls.js";
+import type { ParsedFillAction, ParsedRequestTarget } from "../types.js";
+import type { RuntimeState } from "../state.js";
 import {
   applyFillActionFromElement,
   applyFillActionIfNeeded,
   getFillSelectorFromElement,
   getFillSelectorFromTarget
-} from "./fill-actions";
+} from "./fill-actions.js";
 
 export function setupActionHandlers(state: RuntimeState): void {
   const view = state.doc.defaultView;

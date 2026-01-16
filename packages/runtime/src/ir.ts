@@ -9,8 +9,8 @@ import type {
   ParsedRequestTarget,
   ParsedTextBinding,
   ParsedExpression
-} from "./types";
-import type { RuntimeState } from "./state";
+} from "./types.js";
+import type { RuntimeState } from "./state.js";
 
 export type NodeId = string;
 
@@ -203,14 +203,24 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     template: binding.template
   }));
 
-  const forTemplates: ParsedForTemplate[] = ir.forTemplates.map((template) => ({
-    marker: resolveElement(template.markerId, "forTemplate.marker"),
-    template: toTemplateElement(template.templateHtml),
-    varName: template.varName,
-    selector: template.selector,
-    selectorExpression: template.selectorParts ?? undefined,
-    rendered: []
-  }));
+  const forTemplates: ParsedForTemplate[] = ir.forTemplates.map((template) => {
+    const marker = resolveElement(template.markerId, "forTemplate.marker");
+    const markerId = marker.getAttribute("id") ?? "";
+    const rendered =
+      markerId === ""
+        ? []
+        : Array.from(doc.querySelectorAll("[data-hy-for]")).filter(
+          (element) => element.getAttribute("data-hy-for") === markerId
+        );
+    return {
+      marker,
+      template: toTemplateElement(template.templateHtml),
+      varName: template.varName,
+      selector: template.selector,
+      selectorExpression: template.selectorParts ?? undefined,
+      rendered
+    };
+  });
 
   const ifChains: ParsedIfChain[] = ir.ifChains.map((chain) => ({
     anchor: resolveElement(chain.anchorId, "ifChain.anchor"),

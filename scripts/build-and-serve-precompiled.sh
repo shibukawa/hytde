@@ -2,4 +2,4 @@
 set -euo pipefail
 
 HYTDE_DEMO_DEBUG=true npm run build:demo
-npx serve packages/demo/dist -l 5174
+npm run preview -w packages/demo -- --host 127.0.0.1 --port 5174 --strictPort

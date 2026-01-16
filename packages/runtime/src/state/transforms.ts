@@ -1,4 +1,4 @@
-import type { JsonScalar, JsonScalarType, HyGlobals } from "../types";
+import type { JsonScalar, JsonScalarType, HyGlobals } from "../types.js";
 
 const TRANSFORM_REGISTRY_KEY = "__hytdeTransforms";
 const TRANSFORM_TYPES: JsonScalarType[] = ["string", "number", "boolean", "null"];
