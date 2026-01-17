@@ -1,5 +1,6 @@
+import type { IrDocument } from "@hytde/runtime";
 import { createRuntime, initHyPathParams } from "@hytde/runtime";
-import { parseDocumentToIr, parseHtml, parseSubtree, resolveImports } from "@hytde/parser";
+import { compactIrDocument, parseDocumentToIr, parseHtml, parseSubtree, resolveImports } from "@hytde/parser";
 import { ensureExtableStylesheet, ensureTableApiStub } from "./table-support";
 
 const LOG_CALLBACK_KEY = "__hytdeLogCallbacks";
@@ -53,6 +54,7 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     }
   });
   const ir = parseDocumentToIr(doc);
+  const runtimeIr = compactIrDocument(ir) as IrDocument;
   const tableCount = ir.executionMode === "disable" ? 0 : ir.tables.length;
   console.info("[hytde] runtime:parse:complete", {
     mode: ir.executionMode,
@@ -85,7 +87,7 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     console.info("[hytde] runtime:msw:skip", { reason: "ssr" });
   }
   console.debug("[hytde] runtime:data:initial", { requests: ir.requestTargets.length });
-  runtime.init(doc, ir);
+  runtime.init(doc, runtimeIr);
   if (errors.length > 0) {
     const hy = (doc.defaultView ?? globalThis).hy;
     if (hy && Array.isArray(hy.errors)) {

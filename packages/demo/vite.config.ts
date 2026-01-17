@@ -71,6 +71,34 @@ export default defineConfig(() => ({
           fileURLToPath(new URL(".", import.meta.url)),
           "../standalone/src/debug-api.ts"
         )
+      },
+      {
+        find: /^@hytde\/precompile$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../precompile/entries/production-auto/index.ts"
+        )
+      },
+      {
+        find: /^@hytde\/precompile\/debug$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../precompile/entries/debug-auto/index.ts"
+        )
+      },
+      {
+        find: /^@hytde\/precompile\/no-auto$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../precompile/entries/production-manual/index.ts"
+        )
+      },
+      {
+        find: /^@hytde\/precompile\/no-auto-debug$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../precompile/entries/debug-manual/index.ts"
+        )
       }
     ]
   }

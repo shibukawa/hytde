@@ -1,6 +1,6 @@
+import type { IrDocument as RuntimeIrDocument } from "@hytde/runtime";
 import { createRuntime, initHyPathParams } from "@hytde/runtime";
-import { parseSubtree } from "@hytde/parser";
-import type { IrDocument } from "@hytde/runtime";
+import { compactIrDocument, expandIrDocument, parseSubtree, type IrDocument as ParserIrDocument } from "@hytde/parser";
 import extableCssUrl from "./extable.css?url";
 
 const PARSER_SNAPSHOT_ID = "hy-precompile-parser";
@@ -42,17 +42,23 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     parseSubtree
   });
 
-  const ir = readParserSnapshot(doc);
-  if (!ir) {
+  const snapshot = readParserSnapshot(doc);
+  const normalized = normalizeIrSnapshot(snapshot);
+  if (!normalized) {
     console.error("[hytde] precompile:parser snapshot missing.");
     return;
   }
+  const { compact: runtimeIr, verbose: ir } = normalized;
+  const requestTargets = Array.isArray(ir.requestTargets) ? ir.requestTargets : [];
+  const parseErrors = Array.isArray(ir.parseErrors) ? (ir.parseErrors as ParseError[]) : [];
+  const tables = Array.isArray(ir.tables) ? ir.tables : [];
+  const executionMode = ir.executionMode ?? "production";
+  const mockRules = Array.isArray(ir.mockRules) ? ir.mockRules : [];
   console.debug("[hytde] precompile:entry:ir", {
-    executionMode: ir.executionMode,
-    requestTargets: ir.requestTargets.length
+    executionMode,
+    requestTargets: requestTargets.length
   });
 
-  const parseErrors = Array.isArray(ir.parseErrors) ? (ir.parseErrors as ParseError[]) : [];
   if (parseErrors.length > 0) {
     const hy = ensureHy(doc.defaultView ?? globalThis);
     const nextErrors: HyError[] = parseErrors.map((error) => ({
@@ -67,13 +73,13 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     }
   }
 
-  if (ir.executionMode !== "disable" && ir.tables.length > 0) {
+  if (executionMode !== "disable" && tables.length > 0) {
     ensureExtableStylesheet(doc);
   }
 
-  await registerMetaMockHandlers(doc, ir);
-  await startMockServiceWorkerIfNeeded(doc, ir.executionMode);
-  runtime.init(doc, ir);
+  await registerMetaMockHandlers(doc, { executionMode, mockRules });
+  await startMockServiceWorkerIfNeeded(doc, executionMode);
+  runtime.init(doc, runtimeIr);
   const hy = ensureHy(doc.defaultView ?? globalThis);
   hy[INIT_DONE_KEY] = true;
   console.debug("[hytde] precompile:entry:done", { url: doc.URL });
@@ -152,7 +158,7 @@ function resolveDocument(root?: Document | HTMLElement): Document | null {
   return root.ownerDocument;
 }
 
-function readParserSnapshot(doc: Document): IrDocument | null {
+function readParserSnapshot(doc: Document): unknown | null {
   const script = doc.getElementById(PARSER_SNAPSHOT_ID);
   if (!script) {
     return null;
@@ -162,11 +168,32 @@ function readParserSnapshot(doc: Document): IrDocument | null {
     return null;
   }
   try {
-    return JSON.parse(payload) as IrDocument;
+    return JSON.parse(payload);
   } catch (error) {
     console.error("[hytde] precompile:parser snapshot parse failed.", error);
     return null;
   }
+}
+
+function normalizeIrSnapshot(
+  snapshot: unknown
+): { compact: RuntimeIrDocument; verbose: RuntimeIrDocument } | null {
+  if (!snapshot || typeof snapshot !== "object") {
+    return null;
+  }
+  const record = snapshot as Record<string, unknown>;
+  const isCompact = "m" in record || "tb" in record || "rt" in record || "ic" in record;
+  if (isCompact) {
+    return {
+      compact: snapshot as RuntimeIrDocument,
+      verbose: expandIrDocument(snapshot) as RuntimeIrDocument
+    };
+  }
+  const verbose = snapshot as ParserIrDocument;
+  return {
+    compact: compactIrDocument(verbose) as RuntimeIrDocument,
+    verbose: verbose as RuntimeIrDocument
+  };
 }
 
 function ensureHy(scope: typeof globalThis): HyLogState & { loading: boolean; errors: unknown[] } {

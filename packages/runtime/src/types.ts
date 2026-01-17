@@ -111,6 +111,7 @@ export interface ParsedForTemplate {
 export interface ParsedRequestTarget {
   element: Element;
   urlTemplate: string;
+  templateTokens?: TemplateToken[];
   store: string | null;
   unwrap: string | null;
   method: string;
@@ -215,6 +216,7 @@ export interface ParsedAttrBinding {
   attr: string;
   target: string;
   template: string;
+  templateTokens?: TemplateToken[];
 }
 
 export interface ParsedIfChainNode {
@@ -230,11 +232,15 @@ export interface ParsedIfChain {
 
 export type ParsedExpression = {
   selector: string;
-  selectorTokens: Array<string | number>;
-  transforms: Array<{ name: string; args: JsonScalar[] }>;
+  transforms: string[];
 };
 
 export type ExpressionInput = string | ParsedExpression;
+
+export type TemplateToken = {
+  type: "text" | "token";
+  value: string;
+};
 
 export interface ParsedSubtree {
   dummyElements: Element[];

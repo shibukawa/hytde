@@ -6,6 +6,7 @@ import { parseSubtree } from "@hytde/parser";
 import type { SlotifiedTemplate, SsrConfig } from "./types.js";
 import { buildSsrState, createRequestError } from "./ir-builder.js";
 import { executePrefetch } from "./executor.js";
+import { executeTransformScript } from "./transform-executor.js";
 
 const SSR_STATE_ID = "hy-ssr-state";
 
@@ -13,10 +14,15 @@ export async function renderSsrPage(template: SlotifiedTemplate, request: Reques
   const html = assembleTemplateHtml(template);
   const { document, window } = parseHTML(html);
   ensureDomGlobals(window);
-  const ifChainTemplates = captureIfChainTemplates(document, template);
-
-  const parsed = buildParsedDocumentFromIr(document, template.ir);
+  const parsed = buildParsedDocumentFromIr(document, template.ir as unknown as import("@hytde/runtime").IrDocument);
+  const ifChainTemplates = captureIfChainTemplates(parsed.ifChains);
   const globals = createRuntimeGlobals();
+  const irRecord =
+    template.ir && typeof template.ir === "object" ? (template.ir as Record<string, unknown>) : null;
+  const transformScript = irRecord?.tr;
+  if (typeof transformScript === "string") {
+    executeTransformScript(transformScript, globals);
+  }
   const parser = {
     parseDocument: () => parsed,
     parseSubtree
@@ -34,8 +40,8 @@ export async function renderSsrPage(template: SlotifiedTemplate, request: Reques
 
   const errorEntries = errors.map((message) => createRequestError(message));
   renderDocument(state);
-  restoreIfChainTemplates(document, template, ifChainTemplates);
-  renderTables(document, state.globals, template.ir.tables);
+  restoreIfChainTemplates(document, parsed.ifChains, ifChainTemplates);
+  renderTables(document, state.globals, parsed.tables);
 
   const ssrState = buildSsrState({
     prefetched,
@@ -76,14 +82,12 @@ function removeMockMeta(doc: Document): void {
   }
 }
 
-function captureIfChainTemplates(doc: Document, template: SlotifiedTemplate): Map<string, Element> {
+function captureIfChainTemplates(chains: Array<{ nodes: Array<{ node: Element }> }>): Map<string, Element> {
   const map = new Map<string, Element>();
-  for (const chain of template.ir.ifChains) {
+  for (const chain of chains) {
     for (const node of chain.nodes) {
-      const element = doc.getElementById(node.nodeId);
-      if (element) {
-        map.set(node.nodeId, element.cloneNode(true) as Element);
-      }
+      const element = node.node;
+      map.set(element.id, element.cloneNode(true) as Element);
     }
   }
   return map;
@@ -91,23 +95,23 @@ function captureIfChainTemplates(doc: Document, template: SlotifiedTemplate): Ma
 
 function restoreIfChainTemplates(
   doc: Document,
-  template: SlotifiedTemplate,
+  chains: Array<{ anchor: Element; nodes: Array<{ node: Element }> }>,
   templates: Map<string, Element>
 ): void {
-  for (const chain of template.ir.ifChains) {
-    const anchor = doc.getElementById(chain.anchorId);
+  for (const chain of chains) {
+    const anchor = chain.anchor;
     if (!anchor?.parentNode) {
       continue;
     }
     const parent = anchor.parentNode;
     let insertAfter: Node = anchor;
     for (const node of chain.nodes) {
-      const existing = doc.getElementById(node.nodeId);
-      if (existing) {
+      const existing = node.node;
+      if (existing?.isConnected) {
         insertAfter = existing;
         continue;
       }
-      const clone = templates.get(node.nodeId);
+      const clone = templates.get(node.node.id);
       if (!clone) {
         continue;
       }
@@ -167,10 +171,10 @@ function serializeDocument(doc: Document): string {
   return `${doctype}\n${html}`;
 }
 
-function renderTables(doc: Document, globals: RuntimeGlobals, tables: SlotifiedTemplate["ir"]["tables"]): void {
+function renderTables(doc: Document, globals: RuntimeGlobals, tables: Array<{ table: HTMLTableElement; tableId: string; dataPath: string | null; columns: Array<{ key: string; type: "number" | "date" | "boolean" | "string"; header?: string; width?: number; format?: string }> }>): void {
   for (const table of tables) {
-    const tableElement = doc.getElementById(table.tableElementId);
-    if (!tableElement || tableElement.tagName?.toLowerCase() !== "table") {
+    const tableElement = table.table;
+    if (!tableElement || tableElement.tagName.toLowerCase() !== "table") {
       continue;
     }
     const data = table.dataPath ? resolvePath(globals.hyState, parseSelectorTokens(table.dataPath)) : null;

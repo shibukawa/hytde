@@ -10,7 +10,6 @@ import {
 import { createHyError, pushError, setErrors } from "../errors/ui.js";
 import { resolvePath } from "../utils/path.js";
 import { parseSelectorTokens } from "../utils/selectors.js";
-import { cleanupRequestTarget } from "../render/cleanup.js";
 import { getStreamKeyCache, resolveStreamKey } from "./stream-cache.js";
 import { createStreamGate } from "./stream-gate.js";
 import type { StreamGate } from "./stream-gate.js";
@@ -42,7 +41,7 @@ export function resolveRequestUrl(target: ParsedRequestTarget, state: RuntimeSta
   return resolveUrlTemplate(template, scope, state, {
     urlEncodeTokens: true,
     context: "request"
-  });
+  }, target.templateTokens);
 }
 
 function buildRequestScope(target: ParsedRequestTarget, state: RuntimeState): ScopeStack {
@@ -168,7 +167,6 @@ function applyRequestPayload(
   if (!options.skipRedirect) {
     maybeRedirectAfterSubmit(target, payload, state);
   }
-  cleanupRequestTarget(target);
   if (target.store) {
     const cascadedStores = handleCascadeStoreUpdate(target.store, state);
     if (!state.bootstrapPending) {
@@ -423,12 +421,12 @@ export async function handleRequest(
 }
 
 async function handleStreamRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
-  const { element, urlTemplate } = target;
+  const { element, urlTemplate, templateTokens } = target;
   const scope = buildScopeStack(element, state);
   const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
     urlEncodeTokens: true,
     context: "request"
-  });
+  }, templateTokens);
   const { finalUrl, init } = buildRequestInit(target, resolvedUrl.value, state.doc);
   const requestId = ++state.requestCounter;
   const gate = createStreamGate(target);
@@ -456,7 +454,6 @@ async function handleStreamRequest(target: ParsedRequestTarget, state: RuntimeSt
       detail: { url: finalUrl, method: target.method },
       timestamp: Date.now()
     });
-    cleanupRequestTarget(target);
   } catch (error) {
     recordError(state, error, finalUrl, target.method);
   } finally {
@@ -466,12 +463,12 @@ async function handleStreamRequest(target: ParsedRequestTarget, state: RuntimeSt
 }
 
 async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
-  const { element, urlTemplate } = target;
+  const { element, urlTemplate, templateTokens } = target;
   const scope = buildScopeStack(element, state);
   const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
     urlEncodeTokens: true,
     context: "request"
-  });
+  }, templateTokens);
   const gate = createStreamGate(target);
 
   const eventSource = new EventSource(resolvedUrl.value);
@@ -545,7 +542,7 @@ async function handleSseRequest(target: ParsedRequestTarget, state: RuntimeState
 }
 
 async function handlePollingRequest(target: ParsedRequestTarget, state: RuntimeState): Promise<void> {
-  const { element, urlTemplate } = target;
+  const { element, urlTemplate, templateTokens } = target;
   if (!element.isConnected) {
     return;
   }
@@ -553,7 +550,7 @@ async function handlePollingRequest(target: ParsedRequestTarget, state: RuntimeS
   const resolvedUrl = resolveUrlTemplate(urlTemplate, scope, state, {
     urlEncodeTokens: true,
     context: "request"
-  });
+  }, templateTokens);
   const { finalUrl, init } = buildRequestInit(target, resolvedUrl.value, state.doc);
   const intervalMs = Math.max(200, target.pollIntervalMs ?? 1000);
 

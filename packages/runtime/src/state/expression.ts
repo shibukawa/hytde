@@ -1,7 +1,7 @@
 import { parseHashParams } from "../parse/params.js";
 import { parseSelectorTokensStrict } from "../utils/selectors.js";
 import { createHyError, pushError } from "../errors/ui.js";
-import type { RuntimeGlobals, ExpressionInput, ParsedExpression } from "../types.js";
+import type { RuntimeGlobals, ExpressionInput, ParsedExpression, TemplateToken } from "../types.js";
 import type { RuntimeState } from "../state.js";
 import type { JsonScalar } from "../types.js";
 import { emitLog, emitExpressionError, emitTransformError } from "../utils/logging.js";
@@ -27,9 +27,10 @@ export function resolveUrlTemplate(
   template: string,
   scope: ScopeStack,
   state: RuntimeState,
-  options: { urlEncodeTokens: boolean; context: UrlInterpolationContext }
+  options: { urlEncodeTokens: boolean; context: UrlInterpolationContext },
+  tokens?: TemplateToken[]
 ): InterpolationResult {
-  const resolved = interpolateTemplate(template, scope, state, {
+  const resolved = interpolateTemplate(tokens ?? template, scope, state, {
     urlEncodeTokens: options.urlEncodeTokens
   });
   const navResult = applyPathParamsToUrl(resolved.value, template, scope, state, options.context);
@@ -37,46 +38,12 @@ export function resolveUrlTemplate(
 }
 
 export function interpolateTemplate(
-  template: string,
+  template: string | TemplateToken[],
   scope: ScopeStack,
   state: RuntimeState,
   options: { urlEncodeTokens: boolean }
 ): InterpolationResult {
-  const pieces: Array<{ type: "text"; value: string } | { type: "token"; value: string }> = [];
-  let cursor = 0;
-
-  while (cursor < template.length) {
-    const char = template[cursor];
-    const next = template[cursor + 1];
-
-    if (char === "{" && next === "{") {
-      pieces.push({ type: "text", value: "{" });
-      cursor += 2;
-      continue;
-    }
-
-    if (char === "}" && next === "}") {
-      pieces.push({ type: "text", value: "}" });
-      cursor += 2;
-      continue;
-    }
-
-    if (char === "{") {
-      const end = template.indexOf("}", cursor + 1);
-      if (end === -1) {
-        pieces.push({ type: "text", value: template.slice(cursor) });
-        break;
-      }
-      const token = template.slice(cursor + 1, end).trim();
-      pieces.push({ type: "token", value: token });
-      cursor = end + 1;
-      continue;
-    }
-
-    pieces.push({ type: "text", value: char });
-    cursor += 1;
-  }
-
+  const pieces = Array.isArray(template) ? template : tokenizeTemplate(template);
   const isSingleToken = pieces.length === 1 && pieces[0].type === "token";
   let tokenValue: unknown = null;
   let value = "";
@@ -99,6 +66,55 @@ export function interpolateTemplate(
   return { value, isSingleToken, tokenValue };
 }
 
+function tokenizeTemplate(template: string): TemplateToken[] {
+  const pieces: TemplateToken[] = [];
+  let buffer = "";
+  let cursor = 0;
+
+  const pushBuffer = (): void => {
+    if (buffer.length > 0) {
+      pieces.push({ type: "text", value: buffer });
+      buffer = "";
+    }
+  };
+
+  while (cursor < template.length) {
+    const char = template[cursor];
+    const next = template[cursor + 1];
+
+    if (char === "{" && next === "{") {
+      buffer += "{";
+      cursor += 2;
+      continue;
+    }
+
+    if (char === "}" && next === "}") {
+      buffer += "}";
+      cursor += 2;
+      continue;
+    }
+
+    if (char === "{") {
+      const end = template.indexOf("}", cursor + 1);
+      if (end === -1) {
+        buffer += template.slice(cursor);
+        break;
+      }
+      pushBuffer();
+      const token = template.slice(cursor + 1, end).trim();
+      pieces.push({ type: "token", value: token });
+      cursor = end + 1;
+      continue;
+    }
+
+    buffer += char;
+    cursor += 1;
+  }
+
+  pushBuffer();
+  return pieces;
+}
+
 export function evaluateExpression(expression: ExpressionInput, scope: ScopeStack, state: RuntimeState): unknown {
   if (typeof expression !== "string") {
     return evaluateParsedExpression(expression, scope, state);
@@ -118,40 +134,15 @@ export function evaluateExpression(expression: ExpressionInput, scope: ScopeStac
 }
 
 function evaluateParsedExpression(expression: ParsedExpression, scope: ScopeStack, state: RuntimeState): unknown {
-  if (!expression.selectorTokens || expression.selectorTokens.length === 0) {
+  if (!expression.selector) {
     return null;
   }
-  let value = evaluateSelectorTokens(expression.selectorTokens, scope, state);
-  for (const transform of expression.transforms) {
-    value = applyTransform(transform, value, state);
+  let value = evaluateSelector(expression.selector, scope, state);
+  for (const transform of expression.transforms ?? []) {
+    const parsed = parseTransform(transform);
+    value = applyTransform(parsed, value, state);
   }
   return value;
-}
-
-function evaluateSelectorTokens(tokens: Array<string | number>, scope: ScopeStack, state: RuntimeState): unknown {
-  const first = tokens[0];
-  if (typeof first !== "string") {
-    return null;
-  }
-
-  let current = resolveRootValue(first, scope, state.globals);
-  for (let index = 1; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (current == null) {
-      return null;
-    }
-    if (typeof token === "number") {
-      current = (current as unknown[])[token];
-    } else {
-      if (token === "last" && Array.isArray(current)) {
-        current = current.length > 0 ? current[current.length - 1] : null;
-        continue;
-      }
-      current = (current as Record<string, unknown>)[token];
-    }
-  }
-
-  return current ?? null;
 }
 
 export function evaluateSelector(selector: string, scope: ScopeStack, state: RuntimeState): unknown {

@@ -1,5 +1,19 @@
+import { parseExpression } from "./expression-parser.js";
+import { parseTemplate } from "./template-parser.js";
+import { compactifyKeys, expandKeys } from "./key-mapping.js";
+
 export type ExecutionMode = "production" | "mock" | "disable";
 export type NodeId = string;
+
+export interface ParsedExpression {
+  selector: string;
+  transforms: string[];
+}
+
+export interface TemplateToken {
+  type: "text" | "token";
+  value: string;
+}
 
 export interface IrBase {
   executionMode: ExecutionMode;
@@ -8,6 +22,7 @@ export interface IrBase {
 export interface IrTextBinding {
   nodeId: NodeId;
   expression: string;
+  expressionParts?: ParsedExpression;
 }
 
 export interface IrAttrBinding {
@@ -15,6 +30,7 @@ export interface IrAttrBinding {
   attr: string;
   target: string;
   template: string;
+  templateTokens?: TemplateToken[];
 }
 
 export interface IrForTemplate {
@@ -22,12 +38,14 @@ export interface IrForTemplate {
   templateHtml: string;
   varName: string;
   selector: string;
+  selectorParts?: ParsedExpression;
 }
 
 export interface IrIfChainNode {
   nodeId: NodeId;
   kind: "if" | "else-if" | "else";
   expression: string | null;
+  expressionParts?: ParsedExpression;
 }
 
 export interface IrIfChain {
@@ -38,6 +56,7 @@ export interface IrIfChain {
 export interface IrRequestTarget {
   elementId: NodeId;
   urlTemplate: string;
+  templateTokens?: TemplateToken[];
   store: string | null;
   unwrap: string | null;
   method: string;
@@ -136,6 +155,7 @@ export interface IrDocument extends IrBase {
   parseErrors: ParseError[];
   handlesErrors: boolean;
   hasErrorPopover: boolean;
+  transforms: string | null;
   textBindings: IrTextBinding[];
   attrBindings: IrAttrBinding[];
   forTemplates: IrForTemplate[];
@@ -379,33 +399,41 @@ export function parseDocumentToIr(
     parseErrors: parsed.parseErrors,
     handlesErrors: parsed.handlesErrors,
     hasErrorPopover: parsed.hasErrorPopover,
+    transforms: extractTransforms(doc),
     textBindings: parsed.textBindings.map((binding) => ({
       nodeId: resolveId(binding.element),
-      expression: binding.expression
+      expression: binding.expression,
+      expressionParts: parseExpression(binding.expression) ?? { selector: binding.expression.trim(), transforms: [] }
     })),
     attrBindings: parsed.attrBindings.map((binding) => ({
       nodeId: resolveId(binding.element),
       attr: binding.attr,
       target: binding.target,
-      template: binding.template
+      template: binding.template,
+      templateTokens: parseTemplate(binding.template)
     })),
     forTemplates: parsed.forTemplates.map((template) => ({
       markerId: resolveId(template.marker),
       templateHtml: template.template.outerHTML,
       varName: template.varName,
-      selector: template.selector
+      selector: template.selector,
+      selectorParts: parseExpression(template.selector) ?? { selector: template.selector.trim(), transforms: [] }
     })),
     ifChains: parsed.ifChains.map((chain) => ({
       anchorId: resolveId(chain.anchor),
       nodes: chain.nodes.map((node) => ({
         nodeId: resolveId(node.node),
         kind: node.kind,
-        expression: node.expression ?? null
+        expression: node.expression ?? null,
+        expressionParts: node.expression
+          ? parseExpression(node.expression) ?? { selector: node.expression.trim(), transforms: [] }
+          : undefined
       }))
     })),
     requestTargets: parsed.requestTargets.map((target) => ({
       elementId: resolveId(target.element),
       urlTemplate: target.urlTemplate,
+      templateTokens: parseTemplate(target.urlTemplate),
       store: target.store,
       unwrap: target.unwrap,
       method: target.method,
@@ -475,6 +503,14 @@ export function parseDocumentToIr(
     cloakElementIds: parsed.cloakElements.map((element) => resolveId(element)),
     dummyElementIds: []
   };
+}
+
+export function compactIrDocument(ir: IrDocument): unknown {
+  return compactifyKeys(ir);
+}
+
+export function expandIrDocument(ir: unknown): IrDocument {
+  return expandKeys(ir) as IrDocument;
 }
 
 export function parseSubtree(root: ParentNode, parseErrors: ParseError[] = []): ParsedSubtree {
@@ -653,6 +689,28 @@ function parseDelayRange(value: string): { min: number; max: number } | null {
     return { min, max };
   }
   return null;
+}
+
+function extractTransforms(doc: Document): string | null {
+  const scripts = Array.from(doc.querySelectorAll("script"));
+  const snippets: string[] = [];
+  for (const script of scripts) {
+    if (script.getAttribute("src")) {
+      continue;
+    }
+    const body = script.textContent ?? "";
+    if (!body) {
+      continue;
+    }
+    if (!/\bregisterTransform\s*\(/.test(body)) {
+      continue;
+    }
+    snippets.push(body.trim());
+  }
+  if (snippets.length === 0) {
+    return null;
+  }
+  return snippets.join("\n");
 }
 
 function patternToRegex(pattern: string): RegExp {
@@ -1928,6 +1986,8 @@ function ensureUniqueIds(nodes: Element[], doc: Document): void {
 function parseForTemplates(root: ParentNode, parseErrors: ParseError[]): ForTemplate[] {
   const elements = selectWithRoot(root, "[hy-for]");
   const templates: ForTemplate[] = [];
+  const usedIds = new Set<string>();
+  let markerCounter = 0;
 
   for (const element of elements) {
     const expression = element.getAttribute("hy-for") ?? "";
@@ -1952,7 +2012,10 @@ function parseForTemplates(root: ParentNode, parseErrors: ParseError[]): ForTemp
       continue;
     }
 
-    const marker = createAnchorElement(doc, "for");
+    const marker = createAnchorElement(doc, "for", element.parentElement);
+    const markerId = createMarkerId(doc, usedIds, markerCounter, "hy-for-");
+    markerCounter += 1;
+    marker.setAttribute("id", markerId);
     const template = element.cloneNode(true) as Element;
     template.removeAttribute("hy-for");
 
@@ -2071,6 +2134,8 @@ function parseIfChains(root: ParentNode): IfChain[] {
   const ifElements = selectWithRoot(root, "[hy-if]");
   const processed = new WeakSet<Element>();
   const chains: IfChain[] = [];
+  const usedIds = new Set<string>();
+  let markerCounter = 0;
   const doc = root instanceof Document ? root : root.ownerDocument;
   if (!doc) {
     return chains;
@@ -2118,7 +2183,10 @@ function parseIfChains(root: ParentNode): IfChain[] {
     if (!parent) {
       continue;
     }
-    const anchor = createAnchorElement(doc, "if");
+    const anchor = createAnchorElement(doc, "if", element.parentElement);
+    const markerId = createMarkerId(doc, usedIds, markerCounter, "hy-if-");
+    markerCounter += 1;
+    anchor.setAttribute("id", markerId);
     parent.insertBefore(anchor, element);
     const nodes = chain.map((node) => {
       let kind: "if" | "else-if" | "else" = "else";
@@ -2143,10 +2211,11 @@ function parseIfChains(root: ParentNode): IfChain[] {
 }
 
 function parseTextBindings(root: ParentNode): TextBinding[] {
-  return selectWithRoot(root, "[hy]").map((element) => ({
-    element,
-    expression: element.getAttribute("hy") ?? ""
-  }));
+  return selectWithRoot(root, "[hy]").map((element) => {
+    const expression = element.getAttribute("hy") ?? "";
+    element.removeAttribute("hy");
+    return { element, expression };
+  });
 }
 
 function parseAttrBindings(root: ParentNode): AttrBinding[] {
@@ -2163,6 +2232,7 @@ function parseAttrBindings(root: ParentNode): AttrBinding[] {
         target,
         template: element.getAttribute(attr) ?? ""
       });
+      element.removeAttribute(attr);
     }
     if (element.hasAttribute("hy-href")) {
       bindings.push({
@@ -2171,6 +2241,7 @@ function parseAttrBindings(root: ParentNode): AttrBinding[] {
         target: "href",
         template: element.getAttribute("hy-href") ?? ""
       });
+      element.removeAttribute("hy-href");
     }
   }
 
@@ -2359,11 +2430,27 @@ function removeDummyElements(root: ParentNode): void {
   }
 }
 
-function createAnchorElement(doc: Document, kind: "for" | "if"): Element {
-  const anchor = doc.createElement("hy-anchor");
+function createAnchorElement(doc: Document, _kind: "for" | "if", parent: Element | null): Element {
+  if (parent instanceof HTMLSelectElement) {
+    const option = doc.createElement("option");
+    option.setAttribute("hidden", "hy-ignore");
+    option.textContent = "";
+    return option;
+  }
+  const anchor = doc.createElement("div");
   anchor.setAttribute("hidden", "hy-ignore");
-  anchor.setAttribute("data-hy-anchor", kind);
   return anchor;
+}
+
+function createMarkerId(doc: Document, usedIds: Set<string>, counter: number, prefix: string): string {
+  let id = "";
+  let current = counter;
+  do {
+    id = `${prefix}${current.toString(36)}`;
+    current += 1;
+  } while (usedIds.has(id) || doc.getElementById(id));
+  usedIds.add(id);
+  return id;
 }
 
 function createIdResolver(doc: Document, idGenerator?: IdGenerator): (element: Element) => NodeId {
