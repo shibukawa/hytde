@@ -3,12 +3,13 @@ import type { OutputAsset, OutputBundle } from "rollup";
 import { parseHTML } from "linkedom";
 import type { Dirent } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readdir, stat } from "node:fs/promises";
 import { statSync } from "node:fs";
-import { parseDocumentToIr, selectImportExports } from "@hytde/parser";
-import type { IrDocument } from "@hytde/runtime";
+import { parseDocumentToIr, selectImportExports, compactIrDocument, expandIrDocument } from "@hytde/parser";
+import type { IrDocument } from "@hytde/parser";
 
 const PARSER_SNAPSHOT_ID = "hy-precompile-parser";
 const STANDALONE_IMPORT_PATTERN = /@hytde\/standalone(?:\/[a-z-]+)?/g;
@@ -34,11 +35,14 @@ type HyTdePluginOptions = {
   tailwindSupport?: boolean | string;
 };
 
+const require = createRequire(import.meta.url);
+
 export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
   let rootDir = process.cwd();
   let resolvedConfig: ResolvedConfig | null = null;
   let tailwindSupport: Promise<TailwindSupportConfig | null> | null = null;
   const ssrTemplates = new Map<string, string>();
+  let mswWorkerPathPromise: Promise<string | null> | null = null;
   const shouldEmitSsr = () => Boolean(resolvedConfig && resolvedConfig.command === "build" && options.disableSSR !== true);
 
   const corePlugin: Plugin = {
@@ -79,7 +83,17 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
       if (source === TAILWIND_RESOLVED_ID) {
         return source;
       }
-      if (!source.includes("@hytde/standalone") || source.includes("@hytde/standalone/debug-api")) {
+      if (resolvedConfig?.command === "serve") {
+        const localPrecompile = resolveLocalPrecompileEntry(source, rootDir);
+        if (localPrecompile) {
+          return localPrecompile;
+        }
+      }
+      if (
+        !source.includes("@hytde/standalone") ||
+        source.includes("@hytde/standalone/debug-api") ||
+        source.includes("@hytde/standalone/msw-debug")
+      ) {
         return null;
       }
       const isDebug = resolveRuntimeDebugMode(undefined, options, resolvedConfig);
@@ -182,8 +196,28 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
       }
     },
     configureServer(server) {
-      server.middlewares.use(async (req, _res, next) => {
+      server.middlewares.use(async (req, res, next) => {
         const url = req.url?.split("?")[0] ?? "";
+        if (url === "/mockServiceWorker.js") {
+          if (!mswWorkerPathPromise) {
+            mswWorkerPathPromise = resolveMswWorkerPath(rootDir);
+          }
+          const workerPath = await mswWorkerPathPromise;
+          if (!workerPath) {
+            next();
+            return;
+          }
+          const content = await readFile(workerPath, "utf8").catch(() => null);
+          if (!content) {
+            next();
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "text/javascript");
+          res.setHeader("Cache-Control", "no-cache");
+          res.end(content);
+          return;
+        }
         if (!url || url.endsWith(".html") || url.includes(".")) {
           next();
           return;
@@ -242,7 +276,7 @@ type SlotifiedTemplate = {
   templateId: string;
   static: string[];
   slots: SlotDescriptor[];
-  ir: IrDocument;
+  ir: unknown;
   nodeMeta: Record<string, NodeMeta>;
 };
 
@@ -279,16 +313,16 @@ async function precompileHtml(
     ? createStableIdGenerator(templateId, locationMap)
     : undefined;
   const ir = parseDocumentToIr(doc, { idGenerator });
+  clearTextBindingPlaceholders(doc, ir);
   stripPrototypingArtifacts(doc);
   normalizeSelectAnchors(doc);
   applyTailwindSupport(doc, tailwindSupport);
   const isDebug = resolveRuntimeDebugMode(ctx, options, resolvedConfig);
   applyMockHandling(doc, ir, options, resolvedConfig, isDebug);
-  preparseExpressions(ir);
   normalizeTemplateHtml(ir);
   applyPathModeHandling(doc, ctx, options);
-  injectParserSnapshot(doc, ir);
-  replaceRuntimeImports(doc, ctx, options, resolvedConfig);
+  injectParserSnapshot(doc, compactIrDocument(ir));
+  replaceRuntimeImports(doc, ctx, options, resolvedConfig, rootDir);
   const htmlOutput = serializeDocument(doc);
   const ssrTemplate = emitSsr && templateId ? buildSlotifiedTemplate(htmlOutput, ir, templateId) : undefined;
   return { html: htmlOutput, ssrTemplate, templateId };
@@ -608,7 +642,8 @@ function stripPrototypingArtifacts(doc: Document): void {
 
   const previewHidden = Array.from(doc.querySelectorAll('[hidden="hy-ignore"]'));
   for (const element of previewHidden) {
-    if (element.tagName.toLowerCase() === "hy-anchor") {
+    const id = element.getAttribute("id") ?? "";
+    if (id.startsWith("hy-if-") || id.startsWith("hy-for-")) {
       continue;
     }
     element.removeAttribute("hidden");
@@ -617,6 +652,20 @@ function stripPrototypingArtifacts(doc: Document): void {
   const cloakElements = Array.from(doc.querySelectorAll("[hy-cloak]"));
   for (const element of cloakElements) {
     element.removeAttribute("hy-cloak");
+  }
+}
+
+function clearTextBindingPlaceholders(doc: Document, ir: IrDocument): void {
+  for (const binding of ir.textBindings) {
+    const id = binding.nodeId;
+    if (!id) {
+      continue;
+    }
+    const element = doc.getElementById(id);
+    if (!element) {
+      continue;
+    }
+    element.textContent = "";
   }
 }
 
@@ -727,25 +776,30 @@ function hasTailwindCdn(doc: Document): boolean {
 }
 
 function normalizeSelectAnchors(doc: Document): void {
-  const anchors = Array.from(doc.querySelectorAll("select hy-anchor[data-hy-anchor='for']"));
+  const anchors = Array.from(doc.querySelectorAll('select [hidden="hy-ignore"]'));
   for (const anchor of anchors) {
     const parent = anchor.parentElement;
     if (!parent || parent.tagName.toLowerCase() !== "select") {
       continue;
     }
+    if (anchor.tagName.toLowerCase() === "option") {
+      continue;
+    }
+    const id = anchor.getAttribute("id") ?? "";
+    if (!id.startsWith("hy-for-") && !id.startsWith("hy-if-")) {
+      continue;
+    }
     const option = doc.createElement("option");
-    const id = anchor.getAttribute("id");
     if (id) {
       option.setAttribute("id", id);
     }
-    option.setAttribute("data-hy-anchor", "for");
     option.setAttribute("hidden", "hy-ignore");
     option.setAttribute("value", "");
     anchor.replaceWith(option);
   }
 }
 
-function injectParserSnapshot(doc: Document, ir: IrDocument): void {
+function injectParserSnapshot(doc: Document, ir: unknown): void {
   const script = doc.createElement("script");
   script.id = PARSER_SNAPSHOT_ID;
   script.type = "application/json";
@@ -757,14 +811,18 @@ function injectParserSnapshot(doc: Document, ir: IrDocument): void {
   doc.documentElement?.appendChild(script);
 }
 
+
 function replaceRuntimeImports(
   doc: Document,
   ctx: IndexHtmlTransformContext | undefined,
   options: HyTdePluginOptions,
-  resolvedConfig: ResolvedConfig | null
+  resolvedConfig: ResolvedConfig | null,
+  rootDir: string
 ): void {
   const isDebug = resolveRuntimeDebugMode(ctx, options, resolvedConfig);
   const manual = Boolean(options.manual);
+  const isDevServer = Boolean(ctx?.server || resolvedConfig?.command === "serve");
+  const devPrecompile = isDevServer ? resolveDevPrecompileSpecifier(rootDir, isDebug, manual) : null;
   const scripts = Array.from(doc.querySelectorAll('script[type="module"]'));
   for (const script of scripts) {
     if (script instanceof HTMLScriptElement && script.src) {
@@ -776,7 +834,7 @@ function replaceRuntimeImports(
     }
     const original = script.textContent ?? "";
     const next = original.replace(STANDALONE_IMPORT_PATTERN, (match) =>
-      resolveStandaloneRuntimeImport(match, isDebug, manual)
+      resolveStandaloneRuntimeImport(match, isDebug, manual, devPrecompile)
     );
     if (next !== original) {
       script.textContent = next;
@@ -802,9 +860,17 @@ function resolveRuntimeDebugMode(
   return mode !== "production";
 }
 
-function resolveStandaloneRuntimeImport(specifier: string, isDebug: boolean, manual: boolean): string {
-  if (specifier.endsWith("/debug-api")) {
+function resolveStandaloneRuntimeImport(
+  specifier: string,
+  isDebug: boolean,
+  manual: boolean,
+  devPrecompile?: string | null
+): string {
+  if (specifier.endsWith("/debug-api") || specifier.endsWith("/msw-debug")) {
     return specifier;
+  }
+  if (devPrecompile) {
+    return devPrecompile;
   }
   const isNoAuto = manual || specifier.includes("/no-auto");
   if (isNoAuto) {
@@ -814,7 +880,11 @@ function resolveStandaloneRuntimeImport(specifier: string, isDebug: boolean, man
 }
 
 function replaceStandaloneRuntimeUrl(value: string, isDebug: boolean, manual: boolean): string {
-  if (!value.includes("@hytde/standalone") || value.includes("@hytde/standalone/debug-api")) {
+  if (
+    !value.includes("@hytde/standalone") ||
+    value.includes("@hytde/standalone/debug-api") ||
+    value.includes("@hytde/standalone/msw-debug")
+  ) {
     return value;
   }
   let next = value.replace("@hytde/standalone", "@hytde/precompile");
@@ -836,6 +906,87 @@ function replaceStandaloneRuntimeUrl(value: string, isDebug: boolean, manual: bo
   return next;
 }
 
+function resolvePrecompileEntryPath(rootDir: string, variant: string): string | null {
+  const candidates = [
+    resolve(rootDir, "..", "precompile", "entries", variant, "index.ts"),
+    resolve(rootDir, "packages", "precompile", "entries", variant, "index.ts")
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (statSync(candidate).isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Ignore missing candidates; fallback tries the next path.
+    }
+  }
+  return null;
+}
+
+async function resolveMswWorkerPath(rootDir: string): Promise<string | null> {
+  const candidates: string[] = [];
+  const publicCandidate = resolve(rootDir, "public", "mockServiceWorker.js");
+  candidates.push(publicCandidate);
+  let mswRoot: string | null = null;
+  try {
+    mswRoot = resolve(require.resolve("msw/package.json"), "..");
+  } catch {
+    mswRoot = null;
+  }
+  if (mswRoot) {
+    candidates.push(
+      resolve(mswRoot, "lib/mockServiceWorker.js"),
+      resolve(mswRoot, "src/mockServiceWorker.js"),
+      resolve(mswRoot, "dist/mockServiceWorker.js")
+    );
+  }
+  candidates.push(
+    resolve(rootDir, "node_modules", "msw", "lib", "mockServiceWorker.js"),
+    resolve(rootDir, "node_modules", "msw", "src", "mockServiceWorker.js"),
+    resolve(rootDir, "node_modules", "msw", "dist", "mockServiceWorker.js")
+  );
+  for (const candidate of candidates) {
+    try {
+      if ((await stat(candidate)).isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Continue to next candidate.
+    }
+  }
+  return null;
+}
+
+function resolveDevPrecompileSpecifier(rootDir: string, isDebug: boolean, manual: boolean): string | null {
+  const variant = isDebug
+    ? manual
+      ? "debug-manual"
+      : "debug-auto"
+    : manual
+      ? "production-manual"
+      : "production-auto";
+  const candidate = resolvePrecompileEntryPath(rootDir, variant);
+  if (!candidate) {
+    return null;
+  }
+  return `/@fs/${toPosixPath(candidate)}`;
+}
+
+function resolveLocalPrecompileEntry(source: string, rootDir: string): string | null {
+  if (!source.startsWith("@hytde/precompile")) {
+    return null;
+  }
+  let variant = "production-auto";
+  if (source.endsWith("/no-auto-debug")) {
+    variant = "debug-manual";
+  } else if (source.endsWith("/no-auto")) {
+    variant = "production-manual";
+  } else if (source.endsWith("/debug")) {
+    variant = "debug-auto";
+  }
+  return resolvePrecompileEntryPath(rootDir, variant);
+}
+
 function serializeDocument(doc: Document): string {
   const doctype = doc.doctype ? `<!DOCTYPE ${doc.doctype.name}>` : "<!DOCTYPE html>";
   const html = doc.documentElement?.outerHTML ?? "";
@@ -853,10 +1004,11 @@ function resolveTemplateId(ctx: IndexHtmlTransformContext | undefined, rootDir: 
   return null;
 }
 
-function buildSlotifiedTemplate(html: string, ir: IrDocument, templateId: string): SlotifiedTemplate {
+function buildSlotifiedTemplate(html: string, ir: unknown, templateId: string): SlotifiedTemplate {
   const doc = parseHtmlDocument(html);
-  const slotIds = collectSlotIds(ir);
-  const outerSlotIds = collectOuterSlotIds(ir);
+  const { compact, verbose } = normalizeSlotIr(ir);
+  const slotIds = collectSlotIds(verbose);
+  const outerSlotIds = collectOuterSlotIds(verbose);
   const slotElements = collectSlotElements(doc, slotIds);
   const { htmlWithMarkers, slots, nodeMeta } = replaceSlotsWithMarkers(doc, slotElements, outerSlotIds);
   const staticParts = splitSlotMarkers(htmlWithMarkers, slots.length);
@@ -865,32 +1017,41 @@ function buildSlotifiedTemplate(html: string, ir: IrDocument, templateId: string
     templateId,
     static: staticParts,
     slots,
-    ir,
+    ir: compact,
     nodeMeta
   };
 }
 
+function normalizeSlotIr(ir: unknown): { compact: unknown; verbose: IrDocument } {
+  const record = ir && typeof ir === "object" ? (ir as Record<string, unknown>) : null;
+  const isCompact = Boolean(record && ("tb" in record || "rt" in record || "ic" in record));
+  if (isCompact) {
+    return { compact: ir, verbose: expandIrDocument(ir) };
+  }
+  return { compact: compactIrDocument(ir as IrDocument), verbose: ir as IrDocument };
+}
+
 function collectSlotIds(ir: IrDocument): Set<string> {
   const ids = new Set<string>();
-  for (const binding of ir.textBindings) {
+  for (const binding of ir.textBindings ?? []) {
     ids.add(binding.nodeId);
   }
-  for (const binding of ir.attrBindings) {
+  for (const binding of ir.attrBindings ?? []) {
     ids.add(binding.nodeId);
   }
-  for (const template of ir.forTemplates) {
+  for (const template of ir.forTemplates ?? []) {
     ids.add(template.markerId);
   }
-  for (const chain of ir.ifChains) {
+  for (const chain of ir.ifChains ?? []) {
     ids.add(chain.anchorId);
-    for (const node of chain.nodes) {
+    for (const node of chain.nodes ?? []) {
       ids.add(node.nodeId);
     }
   }
-  for (const table of ir.tables) {
+  for (const table of ir.tables ?? []) {
     ids.add(table.tableElementId);
   }
-  for (const id of ir.dummyElementIds) {
+  for (const id of ir.dummyElementIds ?? []) {
     ids.add(id);
   }
   return ids;
@@ -898,19 +1059,19 @@ function collectSlotIds(ir: IrDocument): Set<string> {
 
 function collectOuterSlotIds(ir: IrDocument): Set<string> {
   const ids = new Set<string>();
-  for (const template of ir.forTemplates) {
+  for (const template of ir.forTemplates ?? []) {
     ids.add(template.markerId);
   }
-  for (const chain of ir.ifChains) {
+  for (const chain of ir.ifChains ?? []) {
     ids.add(chain.anchorId);
-    for (const node of chain.nodes) {
+    for (const node of chain.nodes ?? []) {
       ids.add(node.nodeId);
     }
   }
-  for (const table of ir.tables) {
+  for (const table of ir.tables ?? []) {
     ids.add(table.tableElementId);
   }
-  for (const id of ir.dummyElementIds) {
+  for (const id of ir.dummyElementIds ?? []) {
     ids.add(id);
   }
   return ids;
@@ -1316,204 +1477,6 @@ function normalizeResolvedId(resolved: unknown): { id: string } | null {
   return null;
 }
 
-function preparseExpressions(ir: IrDocument): void {
-  for (const binding of ir.textBindings) {
-    const parts = parseExpressionParts(binding.expression);
-    if (parts) {
-      binding.expressionParts = parts;
-    }
-  }
-  for (const chain of ir.ifChains) {
-    for (const node of chain.nodes) {
-      if (!node.expression) {
-        continue;
-      }
-      const parts = parseExpressionParts(node.expression);
-      if (parts) {
-        node.expressionParts = parts;
-      }
-    }
-  }
-  for (const template of ir.forTemplates) {
-    const parts = parseExpressionParts(template.selector);
-    if (parts) {
-      template.selectorParts = parts;
-    }
-  }
-}
-
-function parseExpressionParts(expression: string): { selector: string; selectorTokens: Array<string | number>; transforms: Array<{ name: string; args: Array<string | number | boolean | null> }> } | null {
-  const parts = expression.split("|>").map((part) => part.trim()).filter(Boolean);
-  if (parts.length === 0) {
-    return null;
-  }
-  const selector = parts[0];
-  const parsedSelector = parseSelectorTokensStrict(selector);
-  if (parsedSelector.error) {
-    return null;
-  }
-  const transforms = parts.slice(1).map((part) => parseTransformSpec(part));
-  return {
-    selector,
-    selectorTokens: parsedSelector.tokens,
-    transforms
-  };
-}
-
-function parseSelectorTokensStrict(
-  selector: string
-): { tokens: Array<string | number>; error: string | null } {
-  const tokens: Array<string | number> = [];
-  if (!selector) {
-    return { tokens, error: "Selector is empty." };
-  }
-  let cursor = 0;
-  const length = selector.length;
-
-  const readIdentifier = (): string | null => {
-    const match = selector.slice(cursor).match(/^([A-Za-z_$][\w$]*)/);
-    if (!match) {
-      return null;
-    }
-    cursor += match[1].length;
-    return match[1];
-  };
-
-  const first = readIdentifier();
-  if (!first) {
-    return { tokens, error: "Selector must start with an identifier." };
-  }
-  tokens.push(first);
-
-  while (cursor < length) {
-    const char = selector[cursor];
-    if (char === ".") {
-      cursor += 1;
-      const ident = readIdentifier();
-      if (!ident) {
-        return { tokens, error: "Selector dot segment must be an identifier." };
-      }
-      tokens.push(ident);
-      continue;
-    }
-
-    if (char === "[") {
-      cursor += 1;
-      while (selector[cursor] === " ") {
-        cursor += 1;
-      }
-      const quote = selector[cursor];
-      if (quote === "'" || quote === "\"") {
-        cursor += 1;
-        let value = "";
-        while (cursor < length) {
-          if (selector[cursor] === "\\" && cursor + 1 < length) {
-            value += selector[cursor + 1];
-            cursor += 2;
-            continue;
-          }
-          if (selector[cursor] === quote) {
-            break;
-          }
-          value += selector[cursor];
-          cursor += 1;
-        }
-        cursor += 1;
-        tokens.push(value);
-      } else {
-        const end = selector.indexOf("]", cursor);
-        const raw = selector.slice(cursor, end === -1 ? length : end).trim();
-        const num = Number(raw);
-        tokens.push(Number.isNaN(num) ? raw : num);
-        cursor = end === -1 ? length : end;
-      }
-
-      while (cursor < length && selector[cursor] !== "]") {
-        cursor += 1;
-      }
-      cursor += 1;
-      continue;
-    }
-
-    return { tokens, error: "Selector has invalid token." };
-  }
-
-  return { tokens, error: null };
-}
-
-function parseTransformSpec(transform: string): { name: string; args: Array<string | number | boolean | null> } {
-  const match = transform.match(/^([A-Za-z_$][\w$]*)(?:\((.*)\))?$/);
-  if (!match) {
-    return { name: transform, args: [] };
-  }
-
-  const name = match[1];
-  const args = match[2] ? parseLiteralArgs(match[2]) : [];
-  return { name, args };
-}
-
-function parseLiteralArgs(text: string): Array<string | number | boolean | null> {
-  const args: Array<string | number | boolean | null> = [];
-  let cursor = 0;
-
-  while (cursor < text.length) {
-    while (text[cursor] === " " || text[cursor] === "\n" || text[cursor] === "\t" || text[cursor] === ",") {
-      cursor += 1;
-    }
-    if (cursor >= text.length) {
-      break;
-    }
-
-    const quote = text[cursor];
-    if (quote === "'" || quote === "\"") {
-      cursor += 1;
-      let value = "";
-      while (cursor < text.length) {
-        if (text[cursor] === "\\" && cursor + 1 < text.length) {
-          value += text[cursor + 1];
-          cursor += 2;
-          continue;
-        }
-        if (text[cursor] === quote) {
-          break;
-        }
-        value += text[cursor];
-        cursor += 1;
-      }
-      cursor += 1;
-      args.push(value);
-      continue;
-    }
-
-    const end = findArgEnd(text, cursor);
-    const raw = text.slice(cursor, end).trim();
-    if (raw === "true") {
-      args.push(true);
-    } else if (raw === "false") {
-      args.push(false);
-    } else if (raw === "null") {
-      args.push(null);
-    } else if (raw) {
-      const num = Number(raw);
-      args.push(Number.isNaN(num) ? raw : num);
-    }
-    cursor = end;
-  }
-
-  return args;
-}
-
-function findArgEnd(text: string, start: number): number {
-  let cursor = start;
-  while (cursor < text.length) {
-    const char = text[cursor];
-    if (char === "," || char === ")") {
-      break;
-    }
-    cursor += 1;
-  }
-  return cursor;
-}
 
 function normalizeTemplateHtml(ir: IrDocument): void {
   for (const template of ir.forTemplates) {

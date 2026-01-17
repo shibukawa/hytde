@@ -1,4 +1,4 @@
-import type { IrDocument, HyError } from "@hytde/runtime";
+import type { HyError } from "@hytde/runtime";
 
 export type PrefetchEntry = {
   path: string;
@@ -35,7 +35,7 @@ export type SlotifiedTemplate = {
   templateId: string;
   static: string[];
   slots: SlotDescriptor[];
-  ir: IrDocument;
+  ir: unknown;
   nodeMeta: Record<string, NodeMeta>;
 };
 

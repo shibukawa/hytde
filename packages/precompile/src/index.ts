@@ -1,6 +1,6 @@
+import type { IrDocument as RuntimeIrDocument } from "@hytde/runtime";
 import { createRuntime, type Runtime, initHyPathParams } from "@hytde/runtime";
-import { parseSubtree } from "@hytde/parser";
-import type { IrDocument } from "@hytde/runtime";
+import { compactIrDocument, expandIrDocument, parseSubtree, type IrDocument as ParserIrDocument } from "@hytde/parser";
 
 export interface PrecompileRuntime {
   init(root?: Document | HTMLElement): void;
@@ -23,17 +23,21 @@ export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime
 
   const initWithDocument = (doc: Document): void => {
     console.debug("[hytde] precompile:init:start", { url: doc.URL });
-    const ir = readParserSnapshot(doc);
-    if (!ir) {
+    const snapshot = readParserSnapshot(doc);
+    const normalized = normalizeIrSnapshot(snapshot);
+    if (!normalized) {
       console.error("[hytde] precompile:parser snapshot missing.");
       return;
     }
+    const { compact: runtimeIr, verbose: ir } = normalized;
+    const executionMode = ir.executionMode ?? "production";
+    const requestTargets = Array.isArray(ir.requestTargets) ? ir.requestTargets : [];
     console.debug("[hytde] precompile:init:ir", {
-      executionMode: ir.executionMode,
-      requestTargets: ir.requestTargets.length
+      executionMode,
+      requestTargets: requestTargets.length
     });
     initHyPathParams(doc);
-    runtime.init(doc, ir);
+    runtime.init(doc, runtimeIr);
     console.debug("[hytde] precompile:init:done", { url: doc.URL });
   };
 
@@ -65,7 +69,7 @@ function resolveDocument(root?: Document | HTMLElement): Document | null {
   return root.ownerDocument;
 }
 
-function readParserSnapshot(doc: Document): IrDocument | null {
+function readParserSnapshot(doc: Document): unknown | null {
   const script = doc.getElementById(PARSER_SNAPSHOT_ID);
   if (!script) {
     return null;
@@ -75,11 +79,32 @@ function readParserSnapshot(doc: Document): IrDocument | null {
     return null;
   }
   try {
-    return JSON.parse(payload) as IrDocument;
+    return JSON.parse(payload);
   } catch (error) {
     console.error("[hytde] precompile:parser snapshot parse failed.", error);
     return null;
   }
+}
+
+function normalizeIrSnapshot(
+  snapshot: unknown
+): { compact: RuntimeIrDocument; verbose: RuntimeIrDocument } | null {
+  if (!snapshot || typeof snapshot !== "object") {
+    return null;
+  }
+  const record = snapshot as Record<string, unknown>;
+  const isCompact = "m" in record || "tb" in record || "rt" in record || "ic" in record;
+  if (isCompact) {
+    return {
+      compact: snapshot as RuntimeIrDocument,
+      verbose: expandIrDocument(snapshot) as RuntimeIrDocument
+    };
+  }
+  const verbose = snapshot as ParserIrDocument;
+  return {
+    compact: compactIrDocument(verbose) as RuntimeIrDocument,
+    verbose: verbose as RuntimeIrDocument
+  };
 }
 
 function initOnReady(action: () => void): void {

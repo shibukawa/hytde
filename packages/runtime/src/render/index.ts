@@ -1,4 +1,3 @@
-import { cleanupRequestTargets } from "./cleanup.js";
 import { APPEND_MARK_ATTR, applyHyCloak, clearAppendMarkers, removeDummyNodes } from "./utils.js";
 import type {
   ExpressionInput,
@@ -42,7 +41,6 @@ export function renderDocument(
   });
 
   renderParsedSubtree(state.parsed, state, [], changes);
-  cleanupRequestTargets(state.parsed.requestTargets);
 
   emitLog(state, {
     type: "render",
@@ -64,12 +62,16 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
     return;
   }
   const markerId = template.marker.getAttribute("id") ?? "";
+  const itemIdPrefix = markerId ? `${markerId}-item-` : "";
   const select =
     template.template.tagName === "OPTION" && template.marker.parentNode instanceof HTMLSelectElement
       ? template.marker.parentNode
       : null;
   const selectionSnapshot = select ? captureSelectSelection(select) : null;
-  const items = evaluateExpression(template.selectorExpression ?? template.selector, scope, state);
+  if (!template.selectorExpression) {
+    return;
+  }
+  const items = evaluateExpression(template.selectorExpression, scope, state);
   const appendMode = state.appendStores?.has(template.selector) ?? false;
   const appendCount = Array.isArray(items) ? Math.max(0, items.length - template.rendered.length) : 0;
   const logValue = appendMode ? undefined : items;
@@ -103,8 +105,8 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
     for (let index = template.rendered.length; index < items.length; index += 1) {
       const item = items[index];
       const clone = template.template.cloneNode(true) as Element;
-      if (markerId) {
-        clone.setAttribute("data-hy-for", markerId);
+      if (itemIdPrefix) {
+        clone.setAttribute("id", `${itemIdPrefix}${index.toString(36)}`);
       }
       clone.setAttribute(APPEND_MARK_ATTR, "true");
       state.appendMarkedElements.add(clone);
@@ -131,10 +133,11 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
   template.rendered = [];
 
   let insertAfter: Node = template.marker;
+  let index = 0;
   for (const item of items) {
     const clone = template.template.cloneNode(true) as Element;
-    if (markerId) {
-      clone.setAttribute("data-hy-for", markerId);
+    if (itemIdPrefix) {
+      clone.setAttribute("id", `${itemIdPrefix}${index.toString(36)}`);
     }
     const nextScope = [...scope, { [template.varName]: item }];
     const parsedClone = state.parser.parseSubtree(clone);
@@ -143,6 +146,7 @@ function renderForTemplate(template: ParsedForTemplate, state: RuntimeState, sco
     template.marker.parentNode?.insertBefore(clone, insertAfter.nextSibling);
     template.rendered.push(clone);
     insertAfter = clone;
+    index += 1;
   }
   emitLog(state, {
     type: "render",
@@ -239,7 +243,11 @@ function processIfChains(chains: ParsedIfChain[], state: RuntimeState, scope: Sc
     for (const entry of chain.nodes) {
       let condition = true;
       if (entry.kind === "if" || entry.kind === "else-if") {
-        condition = Boolean(evaluateExpression(entry.expression ?? "", scope, state));
+        if (!entry.expression) {
+          condition = false;
+        } else {
+          condition = Boolean(evaluateExpression(entry.expression, scope, state));
+        }
       }
 
       if (!kept && condition) {
@@ -283,7 +291,6 @@ function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: Scop
       detail: { expression: expressionLabel(binding.expression), value },
       timestamp: Date.now()
     });
-    binding.element.removeAttribute("hy");
   }
 
   for (const binding of parsed.attrBindings) {
@@ -292,8 +299,8 @@ function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: Scop
       ? resolveUrlTemplate(binding.template, scope, state, {
         urlEncodeTokens: true,
         context: "nav"
-      })
-      : interpolateTemplate(binding.template, scope, state, {
+      }, binding.templateTokens)
+      : interpolateTemplate(binding.templateTokens ?? binding.template, scope, state, {
         urlEncodeTokens: binding.target === "href"
       });
 
@@ -308,9 +315,6 @@ function processBindings(parsed: ParsedSubtree, state: RuntimeState, scope: Scop
       } else {
         binding.element.removeAttribute(NAV_FALLBACK_ATTR);
       }
-    }
-    if (binding.attr.startsWith("hy-")) {
-      binding.element.removeAttribute(binding.attr);
     }
   }
 }

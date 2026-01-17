@@ -1,5 +1,7 @@
+import type { IrDocument } from "@hytde/runtime";
 import { createRuntime, initHyPathParams } from "@hytde/runtime";
 import {
+  compactIrDocument,
   parseDocumentToIr,
   parseHtml,
   parseSubtree,
@@ -55,10 +57,11 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     }
   });
   const ir = parseDocumentToIr(doc);
+  const runtimeIr = compactIrDocument(ir) as IrDocument;
   if (mode !== "disable" && ir.tables.length > 0) {
     ensureExtableStylesheet(doc);
   }
-  runtime.init(doc, ir);
+  runtime.init(doc, runtimeIr);
   if (errors.length > 0) {
     const hy = (doc.defaultView ?? globalThis).hy;
     if (hy && Array.isArray(hy.errors)) {

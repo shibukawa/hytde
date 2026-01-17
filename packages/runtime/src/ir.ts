@@ -8,9 +8,11 @@ import type {
   ParsedIfChainNode,
   ParsedRequestTarget,
   ParsedTextBinding,
-  ParsedExpression
+  ParsedExpression,
+  TemplateToken
 } from "./types.js";
 import type { RuntimeState } from "./state.js";
+import { expandKeys, normalizeIrDocument } from "./key-mapping.js";
 
 export type NodeId = string;
 
@@ -29,6 +31,7 @@ export interface IrAttrBinding {
   attr: string;
   target: string;
   template: string;
+  templateTokens?: TemplateToken[];
 }
 
 export interface IrForTemplate {
@@ -54,6 +57,7 @@ export interface IrIfChain {
 export interface IrRequestTarget {
   elementId: NodeId;
   urlTemplate: string;
+  templateTokens?: TemplateToken[];
   store: string | null;
   unwrap: string | null;
   method: string;
@@ -152,6 +156,7 @@ export interface IrDocument extends IrBase {
   parseErrors: Array<{ message: string; detail?: Record<string, unknown> }>;
   handlesErrors: boolean;
   hasErrorPopover: boolean;
+  transforms?: string | null;
   textBindings: IrTextBinding[];
   attrBindings: IrAttrBinding[];
   forTemplates: IrForTemplate[];
@@ -170,6 +175,8 @@ export interface IrDocument extends IrBase {
 }
 
 export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): ParsedDocument {
+  assertCompactIr(ir);
+  const normalizedIr = normalizeIrDocument(expandKeys(ir) as IrDocument);
   const resolveElement = (id: NodeId, label: string): Element => {
     const element = doc.getElementById(id);
     if (!element) {
@@ -191,49 +198,49 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     return element;
   };
 
-  const textBindings: ParsedTextBinding[] = ir.textBindings.map((binding) => ({
+  const textBindings: ParsedTextBinding[] = normalizedIr.textBindings.map((binding) => ({
     element: resolveElement(binding.nodeId, "textBinding"),
-    expression: binding.expressionParts ?? binding.expression
+    expression: binding.expressionParts ?? { selector: binding.expression, transforms: [] }
   }));
 
-  const attrBindings: ParsedAttrBinding[] = ir.attrBindings.map((binding) => ({
+  const attrBindings: ParsedAttrBinding[] = normalizedIr.attrBindings.map((binding) => ({
     element: resolveElement(binding.nodeId, "attrBinding"),
     attr: binding.attr,
     target: binding.target,
-    template: binding.template
+    template: binding.template,
+    templateTokens: binding.templateTokens
   }));
 
-  const forTemplates: ParsedForTemplate[] = ir.forTemplates.map((template) => {
+  const forTemplates: ParsedForTemplate[] = normalizedIr.forTemplates.map((template) => {
     const marker = resolveElement(template.markerId, "forTemplate.marker");
     const markerId = marker.getAttribute("id") ?? "";
     const rendered =
       markerId === ""
         ? []
-        : Array.from(doc.querySelectorAll("[data-hy-for]")).filter(
-          (element) => element.getAttribute("data-hy-for") === markerId
-        );
+        : Array.from(doc.querySelectorAll(`[id^="${markerId}-item-"]`));
     return {
       marker,
       template: toTemplateElement(template.templateHtml),
       varName: template.varName,
       selector: template.selector,
-      selectorExpression: template.selectorParts ?? undefined,
+      selectorExpression: template.selectorParts ?? { selector: template.selector, transforms: [] },
       rendered
     };
   });
 
-  const ifChains: ParsedIfChain[] = ir.ifChains.map((chain) => ({
+  const ifChains: ParsedIfChain[] = normalizedIr.ifChains.map((chain) => ({
     anchor: resolveElement(chain.anchorId, "ifChain.anchor"),
-    nodes: chain.nodes.map((node): ParsedIfChainNode => ({
+    nodes: (chain.nodes ?? []).map((node): ParsedIfChainNode => ({
       node: resolveElement(node.nodeId, "ifChain.node"),
       kind: node.kind,
-      expression: node.expressionParts ?? node.expression
+      expression: node.expressionParts ?? (node.expression ? { selector: node.expression, transforms: [] } : null)
     }))
   }));
 
-  const requestTargets: ParsedRequestTarget[] = ir.requestTargets.map((target) => ({
+  const requestTargets: ParsedRequestTarget[] = normalizedIr.requestTargets.map((target) => ({
     element: resolveElement(target.elementId, "requestTarget.element"),
     urlTemplate: target.urlTemplate,
+    templateTokens: target.templateTokens,
     store: target.store,
     unwrap: target.unwrap,
     method: target.method,
@@ -242,12 +249,12 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     streamTimeoutMs: target.streamTimeoutMs,
     streamKey: target.streamKey,
     pollIntervalMs: target.pollIntervalMs,
-    isForm: target.isForm,
+    isForm: Boolean(target.isForm),
     trigger: target.trigger,
     actionDebounceMs: target.actionDebounceMs,
     redirect: target.redirect,
     form: target.formId ? (resolveElement(target.formId, "requestTarget.form") as HTMLFormElement) : null,
-    fillIntoForms: target.fillIntoIds.map(
+    fillIntoForms: (target.fillIntoIds ?? []).map(
       (id) => resolveElement(id, "requestTarget.fillInto") as HTMLFormElement
     ),
     fillIntoSelector: null,
@@ -258,12 +265,12 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     fillValue: target.fillValue
   }));
 
-  const fillTargets: ParsedFillTarget[] = ir.fillTargets.map((target) => ({
+  const fillTargets: ParsedFillTarget[] = normalizedIr.fillTargets.map((target) => ({
     form: resolveElement(target.formId, "fillTarget.form") as HTMLFormElement,
     selector: target.selector
   }));
 
-  const fillActions: ParsedFillAction[] = ir.fillActions.map((action) => ({
+  const fillActions: ParsedFillAction[] = normalizedIr.fillActions.map((action) => ({
     element: resolveElement(action.elementId, "fillAction.element"),
     selector: action.selector,
     value: action.value,
@@ -275,55 +282,55 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
       : null
   }));
 
-  const historyForms = ir.historyForms.map((entry) => ({
+  const historyForms = normalizedIr.historyForms.map((entry) => ({
     form: resolveElement(entry.formId, "history.form") as HTMLFormElement,
     mode: entry.mode,
     paramsSource: entry.paramsSource,
     fieldNames: entry.fieldNames
   }));
 
-  const autoSubmitForms = ir.autoSubmitForms.map((entry) => ({
+  const autoSubmitForms = normalizedIr.autoSubmitForms.map((entry) => ({
     form: resolveElement(entry.formId, "autoSubmit.form") as HTMLFormElement,
-    events: entry.events,
+    events: entry.events ?? [],
     debounceMs: entry.debounceMs,
     composeMode: entry.composeMode
   }));
 
-  const asyncUploadForms = ir.asyncUploadForms.map((entry) => ({
+  const asyncUploadForms = normalizedIr.asyncUploadForms.map((entry) => ({
     form: resolveElement(entry.formId, "asyncUpload.form") as HTMLFormElement,
     mode: entry.mode,
     uploaderUrl: entry.uploaderUrl,
     chunkSizeBytes: entry.chunkSizeBytes,
     afterSubmitAction: entry.afterSubmitAction,
-    afterSubmitActionPresent: entry.afterSubmitActionPresent,
-    redirectConflict: entry.redirectConflict
+    afterSubmitActionPresent: Boolean(entry.afterSubmitActionPresent),
+    redirectConflict: Boolean(entry.redirectConflict)
   }));
 
-  const formStateCandidates = ir.formStateCandidates.map((candidate) => ({
+  const formStateCandidates = normalizedIr.formStateCandidates.map((candidate) => ({
     form: resolveElement(candidate.formId, "formState.form") as HTMLFormElement,
     owner: resolveElement(candidate.ownerId, "formState.owner") as HTMLElement,
     raw: candidate.raw
   }));
 
-  const tables = ir.tables.map((table) => ({
+  const tables = normalizedIr.tables.map((table) => ({
     table: resolveElement(table.tableElementId, "table.element") as HTMLTableElement,
     tableId: table.tableId,
     dataPath: table.dataPath,
-    options: table.options,
-    columns: table.columns,
-    bindShortcut: table.bindShortcut
+    options: table.options ?? {},
+    columns: table.columns ?? [],
+    bindShortcut: Boolean(table.bindShortcut)
   }));
 
   return {
     doc,
-    executionMode: ir.executionMode,
-    mockRules: ir.mockRules,
-    parseErrors: ir.parseErrors,
+    executionMode: normalizedIr.executionMode,
+    mockRules: normalizedIr.mockRules,
+    parseErrors: normalizedIr.parseErrors,
     requestTargets,
-    handlesErrors: ir.handlesErrors,
-    hasErrorPopover: ir.hasErrorPopover,
+    handlesErrors: normalizedIr.handlesErrors,
+    hasErrorPopover: normalizedIr.hasErrorPopover,
     dummyElements: [],
-    cloakElements: ir.cloakElementIds.map((id) => resolveElement(id, "cloakElement")),
+    cloakElements: normalizedIr.cloakElementIds.map((id) => resolveElement(id, "cloakElement")),
     forTemplates,
     ifChains,
     textBindings,
@@ -335,10 +342,19 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     asyncUploadForms,
     formStateCandidates,
     tables,
-    tableDiagnostics: ir.tableDiagnostics
+    tableDiagnostics: normalizedIr.tableDiagnostics
   };
 }
 
 export function requireRuntimeIr(state: RuntimeState): IrDocument {
   return state.parsed as unknown as IrDocument;
+}
+
+function assertCompactIr(ir: IrDocument): void {
+  if (ir && typeof ir === "object") {
+    const obj = ir as unknown as Record<string, unknown>;
+    if ("executionMode" in obj || "textBindings" in obj || "requestTargets" in obj) {
+      throw new Error("[hytde] verbose IR format is not supported. Regenerate with compact output.");
+    }
+  }
 }
