@@ -1,0 +1,10 @@
+{
+  "title": "SEO Title",
+  "ogTitle": "OG Title",
+  "twitterCard": "summary_large_image",
+  "description": "SEO description",
+  "canonical": "https://example.com/seo",
+  "alternateJa": "https://example.com/seo-ja",
+  "favicon": "/favicon-seo.png",
+  "stylesheet": "/styles-seo.css"
+}

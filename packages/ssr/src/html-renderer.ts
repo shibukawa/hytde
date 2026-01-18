@@ -40,6 +40,7 @@ export async function renderSsrPage(template: SlotifiedTemplate, request: Reques
 
   const errorEntries = errors.map((message) => createRequestError(message));
   renderDocument(state);
+  stripHeadBindings(document, parsed.headBindings, state);
   restoreIfChainTemplates(document, parsed.ifChains, ifChainTemplates);
   renderTables(document, state.globals, parsed.tables);
 
@@ -79,6 +80,21 @@ function removeMockMeta(doc: Document): void {
   const mocks = Array.from(doc.querySelectorAll('meta[name=\"hy-mock\"]'));
   for (const meta of mocks) {
     meta.remove();
+  }
+}
+
+function stripHeadBindings(
+  doc: Document,
+  bindings: Array<{ element: Element; sourceAttr: string }>,
+  state: ReturnType<typeof getRuntimeState>
+): void {
+  void doc;
+  for (const binding of bindings) {
+    const element = binding.element;
+    element.removeAttribute(binding.sourceAttr);
+    if (!state.headBindingFrozen.has(element)) {
+      element.remove();
+    }
   }
 }
 

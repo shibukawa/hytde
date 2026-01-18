@@ -669,6 +669,7 @@ function clearTextBindingPlaceholders(doc: Document, ir: IrDocument): void {
   }
 }
 
+
 type TailwindSupportConfig = {
   mode: "virtual" | "file";
   input: string;

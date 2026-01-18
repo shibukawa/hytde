@@ -211,6 +211,17 @@ export interface ParsedTextBinding {
   expression: ExpressionInput;
 }
 
+export interface ParsedHeadBinding {
+  element: Element;
+  kind: "title" | "meta" | "link";
+  target: "text" | "attr";
+  attr?: string;
+  sourceAttr: string;
+  expression?: ExpressionInput;
+  template?: string;
+  templateTokens?: TemplateToken[];
+}
+
 export interface ParsedAttrBinding {
   element: Element;
   attr: string;
@@ -248,6 +259,7 @@ export interface ParsedSubtree {
   forTemplates: ParsedForTemplate[];
   ifChains: ParsedIfChain[];
   textBindings: ParsedTextBinding[];
+  headBindings: ParsedHeadBinding[];
   attrBindings: ParsedAttrBinding[];
   fillTargets: ParsedFillTarget[];
   fillActions: ParsedFillAction[];

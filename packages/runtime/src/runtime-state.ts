@@ -27,6 +27,8 @@ export function getRuntimeState(
     existing.asyncUploads = new Map();
     existing.asyncUploadEntries = new Map();
     existing.appendMarkedElements = new Set();
+    existing.headBindingFrozen = new WeakSet();
+    existing.headBindingWarned = new WeakSet();
     existing.actionHandlers = {
       handleActionRequest,
       prefetchActionRequest
@@ -66,6 +68,8 @@ export function getRuntimeState(
     appendStores: null,
     appendLogOnlyNew: false,
     appendMarkedElements: new Set(),
+    headBindingFrozen: new WeakSet(),
+    headBindingWarned: new WeakSet(),
     streamKeyCache: new Map(),
     sseSources: new Map(),
     pollingTimers: new Map(),

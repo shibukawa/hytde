@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/head-meta path=/mocks/head-meta.json" />
+    <title hy="seo.title">Initial Title</title>
+    <meta property="og:title" content="Initial OG Title" hy-attr-content="{seo.ogTitle}" />
+    <meta name="twitter:card" content="summary" hy-attr-content="{seo.twitterCard}" />
+    <meta name="description" content="Initial description" hy-attr-content="{seo.description}" />
+    <link rel="canonical" href="https://example.com/initial" hy-attr-href="{seo.canonical}" />
+    <link rel="alternate" href="https://example.com/initial-ja" hreflang="ja" hy-attr-href="{seo.alternateJa}" />
+    <link rel="icon" href="/favicon-initial.png" hy-attr-href="{seo.favicon}" />
+    <link rel="stylesheet" href="/styles-initial.css" hy-attr-href="{seo.stylesheet}" />
+  </head>
+  <body>
+    <hy-get src="/api/head-meta" store="seo"></hy-get>
+    <main>
+      <h1 data-testid="title">Head Meta</h1>
+    </main>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
+  </body>
+</html>

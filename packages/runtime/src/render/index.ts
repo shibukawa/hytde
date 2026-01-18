@@ -6,6 +6,7 @@ import type {
   ParsedForTemplate,
   ParsedIfChain,
   ParsedIfChainNode,
+  ParsedHeadBinding,
   ParsedSubtree,
   ParsedTextBinding,
   PluginChange
@@ -209,9 +210,72 @@ function renderParsedSubtree(
       renderForTemplate(template, state, scope);
     }
   }
+  processHeadBindings(parsed.headBindings, state, scope);
   processBindings(parsed, state, scope);
   setupFillActionHandlers(state, parsed.fillActions);
   applyFillTargets(parsed.fillTargets, state, scope);
+}
+
+function processHeadBindings(
+  bindings: ParsedHeadBinding[],
+  state: RuntimeState,
+  scope: ScopeStack
+): void {
+  if (bindings.length === 0) {
+    return;
+  }
+
+  for (const binding of bindings) {
+    const element = binding.element;
+    if (state.headBindingFrozen.has(element)) {
+      continue;
+    }
+    if (binding.target === "text") {
+      if (!binding.expression) {
+        continue;
+      }
+      const value = evaluateExpression(binding.expression, scope, state);
+      if (value == null) {
+        warnHeadBindingOnce(binding, state);
+        element.remove();
+        state.headBindingFrozen.add(element);
+        continue;
+      }
+      element.textContent = String(value);
+      state.headBindingFrozen.add(element);
+      element.removeAttribute(binding.sourceAttr);
+      continue;
+    }
+
+    if (!binding.template) {
+      continue;
+    }
+    const interpolated = interpolateTemplate(binding.templateTokens ?? binding.template, scope, state, {
+      urlEncodeTokens: false
+    });
+    if (interpolated.isSingleToken && interpolated.tokenValue == null) {
+      warnHeadBindingOnce(binding, state);
+      element.remove();
+      state.headBindingFrozen.add(element);
+      continue;
+    }
+    const target = binding.attr ?? (binding.kind === "link" ? "href" : "content");
+    element.setAttribute(target, interpolated.value);
+    state.headBindingFrozen.add(element);
+    element.removeAttribute(binding.sourceAttr);
+  }
+}
+
+function warnHeadBindingOnce(binding: ParsedHeadBinding, state: RuntimeState): void {
+  const element = binding.element;
+  if (state.headBindingWarned.has(element)) {
+    return;
+  }
+  state.headBindingWarned.add(element);
+  console.warn("[hytde] head binding did not resolve; keeping literal.", {
+    kind: binding.kind,
+    sourceAttr: binding.sourceAttr
+  });
 }
 
 function shouldRenderForTemplate(template: ParsedForTemplate, changes?: PluginChange[]): boolean {

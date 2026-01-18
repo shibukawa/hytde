@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/head-meta-error path=/mocks/head-meta-error.json status=500" />
+    <title hy="seoError.title">Initial Error Title</title>
+    <meta property="og:missing" content="Missing OG" hy-attr-content="{missing.og}" />
+    <meta name="twitter:error" content="Missing Twitter" hy-attr-content="{seoError.card}" />
+    <link rel="canonical" href="https://example.com/missing" hy-attr-href="{missing.canonical}" />
+  </head>
+  <body>
+    <hy-get src="/api/head-meta-error" store="seoError"></hy-get>
+    <main>
+      <h1 data-testid="title">Head Meta Missing</h1>
+    </main>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
+  </body>
+</html>
