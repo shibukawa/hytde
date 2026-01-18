@@ -26,6 +26,18 @@ export interface IrTextBinding {
   expressionParts?: ParsedExpression;
 }
 
+export interface IrHeadBinding {
+  nodeId: NodeId;
+  kind: "title" | "meta" | "link";
+  target: "text" | "attr";
+  attr?: string;
+  sourceAttr: string;
+  expression?: string;
+  expressionParts?: ParsedExpression;
+  template?: string;
+  templateTokens?: TemplateToken[];
+}
+
 export interface IrAttrBinding {
   nodeId: NodeId;
   attr: string;
@@ -158,6 +170,7 @@ export interface IrDocument extends IrBase {
   hasErrorPopover: boolean;
   transforms?: string | null;
   textBindings: IrTextBinding[];
+  headBindings: IrHeadBinding[];
   attrBindings: IrAttrBinding[];
   forTemplates: IrForTemplate[];
   ifChains: IrIfChain[];
@@ -201,6 +214,18 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
   const textBindings: ParsedTextBinding[] = normalizedIr.textBindings.map((binding) => ({
     element: resolveElement(binding.nodeId, "textBinding"),
     expression: binding.expressionParts ?? { selector: binding.expression, transforms: [] }
+  }));
+
+  const headBindings = (normalizedIr.headBindings ?? []).map((binding) => ({
+    element: resolveElement(binding.nodeId, "headBinding"),
+    kind: binding.kind,
+    target: binding.target,
+    attr: binding.attr,
+    sourceAttr: binding.sourceAttr,
+    expression: binding.expressionParts
+      ?? (binding.expression ? { selector: binding.expression, transforms: [] } : undefined),
+    template: binding.template,
+    templateTokens: binding.templateTokens
   }));
 
   const attrBindings: ParsedAttrBinding[] = normalizedIr.attrBindings.map((binding) => ({
@@ -334,6 +359,7 @@ export function buildParsedDocumentFromIr(doc: Document, ir: IrDocument): Parsed
     forTemplates,
     ifChains,
     textBindings,
+    headBindings,
     attrBindings,
     fillTargets,
     fillActions,

@@ -69,6 +69,8 @@ registerRoute("GET", "/api/users", "/mocks/path-parameter-users.json");
 registerRoute("GET", "/api/notifications", "/mocks/notifications.json");
 registerRoute("GET", "/api/notifications/empty", "/mocks/notifications-empty.json");
 registerRoute("GET", "/api/notifications/single", "/mocks/notifications-single.json");
+registerRoute("GET", "/api/head-meta", "/mocks/head-meta.json");
+registerRoute("GET", "/api/head-meta-error", "/mocks/head-meta-error.json", 500);
 registerRoute("GET", "/api/orders", "/mocks/table-orders.json");
 registerRoute("GET", "/api/categories", "/mocks/cascading/categories.json");
 registerRoute("GET", "/api/subcategories/a1", "/mocks/cascading/subcategories-a1.json");

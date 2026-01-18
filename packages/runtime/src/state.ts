@@ -165,6 +165,8 @@ export interface RuntimeState {
   appendStores: Set<string> | null;
   appendLogOnlyNew: boolean;
   appendMarkedElements: Set<Element>;
+  headBindingFrozen: WeakSet<Element>;
+  headBindingWarned: WeakSet<Element>;
   streamKeyCache: Map<string, Set<string>>;
   sseSources: Map<ParsedRequestTarget, EventSource>;
   pollingTimers: Map<ParsedRequestTarget, number>;

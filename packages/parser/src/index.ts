@@ -25,6 +25,18 @@ export interface IrTextBinding {
   expressionParts?: ParsedExpression;
 }
 
+export interface IrHeadBinding {
+  nodeId: NodeId;
+  kind: "title" | "meta" | "link";
+  target: "text" | "attr";
+  attr?: string;
+  sourceAttr: string;
+  expression?: string;
+  expressionParts?: ParsedExpression;
+  template?: string;
+  templateTokens?: TemplateToken[];
+}
+
 export interface IrAttrBinding {
   nodeId: NodeId;
   attr: string;
@@ -157,6 +169,7 @@ export interface IrDocument extends IrBase {
   hasErrorPopover: boolean;
   transforms: string | null;
   textBindings: IrTextBinding[];
+  headBindings: IrHeadBinding[];
   attrBindings: IrAttrBinding[];
   forTemplates: IrForTemplate[];
   ifChains: IrIfChain[];
@@ -303,6 +316,16 @@ export interface TextBinding {
   expression: string;
 }
 
+export interface HeadBinding {
+  element: Element;
+  kind: "title" | "meta" | "link";
+  target: "text" | "attr";
+  attr?: string;
+  sourceAttr: string;
+  expression?: string;
+  template?: string;
+}
+
 export interface AttrBinding {
   element: Element;
   attr: string;
@@ -327,6 +350,7 @@ export interface ParsedSubtree {
   forTemplates: ForTemplate[];
   ifChains: IfChain[];
   textBindings: TextBinding[];
+  headBindings: HeadBinding[];
   attrBindings: AttrBinding[];
   fillTargets: FillTarget[];
   fillActions: FillAction[];
@@ -404,6 +428,19 @@ export function parseDocumentToIr(
       nodeId: resolveId(binding.element),
       expression: binding.expression,
       expressionParts: parseExpression(binding.expression) ?? { selector: binding.expression.trim(), transforms: [] }
+    })),
+    headBindings: parsed.headBindings.map((binding) => ({
+      nodeId: resolveId(binding.element),
+      kind: binding.kind,
+      target: binding.target,
+      attr: binding.attr,
+      sourceAttr: binding.sourceAttr,
+      expression: binding.expression,
+      expressionParts: binding.expression
+        ? parseExpression(binding.expression) ?? { selector: binding.expression.trim(), transforms: [] }
+        : undefined,
+      template: binding.template,
+      templateTokens: binding.template ? parseTemplate(binding.template) : undefined
     })),
     attrBindings: parsed.attrBindings.map((binding) => ({
       nodeId: resolveId(binding.element),
@@ -519,6 +556,7 @@ export function parseSubtree(root: ParentNode, parseErrors: ParseError[] = []): 
   const cloakElements = selectWithRoot(root, "[hy-cloak]");
   const forTemplates = parseForTemplates(root, parseErrors);
   const ifChains = parseIfChains(root);
+  const headBindings = parseHeadBindings(root);
   const textBindings = parseTextBindings(root);
   const attrBindings = parseAttrBindings(root);
   const hrefBindings = parseHrefBindings(root);
@@ -531,6 +569,7 @@ export function parseSubtree(root: ParentNode, parseErrors: ParseError[] = []): 
     forTemplates,
     ifChains,
     textBindings,
+    headBindings,
     attrBindings: [...attrBindings, ...hrefBindings],
     fillTargets,
     fillActions
@@ -2216,6 +2255,118 @@ function parseTextBindings(root: ParentNode): TextBinding[] {
     element.removeAttribute("hy");
     return { element, expression };
   });
+}
+
+function parseHeadBindings(root: ParentNode): HeadBinding[] {
+  const head = resolveHeadRoot(root);
+  if (!head) {
+    return [];
+  }
+  const bindings: HeadBinding[] = [];
+
+  const titles = Array.from(head.querySelectorAll("title[hy]"));
+  for (const element of titles) {
+    const expression = element.getAttribute("hy") ?? "";
+    element.removeAttribute("hy");
+    bindings.push({
+      element,
+      kind: "title",
+      target: "text",
+      sourceAttr: "hy",
+      expression
+    });
+  }
+
+  const metas = Array.from(head.querySelectorAll("meta"));
+  for (const element of metas) {
+    const template = element.getAttribute("hy-attr-content");
+    if (template == null) {
+      continue;
+    }
+    if (!isSupportedHeadMeta(element)) {
+      continue;
+    }
+    element.removeAttribute("hy-attr-content");
+    bindings.push({
+      element,
+      kind: "meta",
+      target: "attr",
+      attr: "content",
+      sourceAttr: "hy-attr-content",
+      template
+    });
+  }
+
+  const links = Array.from(head.querySelectorAll("link"));
+  for (const element of links) {
+    if (!isSupportedHeadLink(element)) {
+      continue;
+    }
+    let template = element.getAttribute("hy-attr-href");
+    let sourceAttr = "hy-attr-href";
+    if (template == null && element.hasAttribute("hy-href")) {
+      template = element.getAttribute("hy-href");
+      sourceAttr = "hy-href";
+    }
+    if (template == null) {
+      continue;
+    }
+    element.removeAttribute("hy-attr-href");
+    element.removeAttribute("hy-href");
+    bindings.push({
+      element,
+      kind: "link",
+      target: "attr",
+      attr: "href",
+      sourceAttr,
+      template
+    });
+  }
+
+  return bindings;
+}
+
+function resolveHeadRoot(root: ParentNode): Element | null {
+  if (root instanceof Document) {
+    return root.head;
+  }
+  if (root instanceof Element) {
+    if (root.tagName.toLowerCase() === "head") {
+      return root;
+    }
+    return root.querySelector("head");
+  }
+  return null;
+}
+
+function isSupportedHeadMeta(element: Element): boolean {
+  const name = element.getAttribute("name")?.trim().toLowerCase() ?? "";
+  const property = element.getAttribute("property")?.trim().toLowerCase() ?? "";
+  if (name === "description") {
+    return true;
+  }
+  if (name.startsWith("og:") || name.startsWith("twitter:")) {
+    return true;
+  }
+  if (property.startsWith("og:")) {
+    return true;
+  }
+  return false;
+}
+
+function isSupportedHeadLink(element: Element): boolean {
+  const rel = element.getAttribute("rel")?.trim().toLowerCase() ?? "";
+  if (!rel) {
+    return false;
+  }
+  const tokens = rel.split(/\s+/);
+  return tokens.some((token) =>
+    token === "canonical" ||
+    token === "alternate" ||
+    token === "icon" ||
+    token === "apple-touch-icon" ||
+    token === "stylesheet"
+  );
 }
 
 function parseAttrBindings(root: ParentNode): AttrBinding[] {

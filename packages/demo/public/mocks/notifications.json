@@ -1,7 +1,0 @@
-{
-  "items": [
-    { "id": "n-100", "title": "Invoice approved", "time": "2m ago" },
-    { "id": "n-101", "title": "New access request", "time": "5m ago" },
-    { "id": "n-102", "title": "Build completed", "time": "12m ago" }
-  ]
-}
