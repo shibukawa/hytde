@@ -30,7 +30,7 @@ type HyTdePluginOptions = {
   manual?: boolean;
   inputPaths?: string[];
   disableSSR?: boolean;
-  mode?: "spa";
+  spa?: boolean;
   manifestPath?: string;
   routerScriptPath?: string;
   /**
@@ -50,7 +50,7 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
   const ssrTemplates = new Map<string, string>();
   const spaModules = new Map<string, SpaModuleEntry>();
   const staticHtmlOutputs = new Map<string, string>();
-  const spaEnabled = options.mode === "spa";
+  const spaEnabled = options.spa === true;
   const manifestConfig = resolveManifestConfig(options.manifestPath);
   let mswWorkerPathPromise: Promise<string | null> | null = null;
   const shouldEmitSsr = () => Boolean(resolvedConfig && resolvedConfig.command === "build" && options.disableSSR !== true);
@@ -473,10 +473,10 @@ async function precompileHtml(
   applyMockHandling(doc, ir, options, resolvedConfig, isDebug);
   normalizeTemplateHtml(ir);
   applyPathModeHandling(doc, ctx, options);
-  if (options.mode === "spa" && options.routerScriptPath) {
+  if (options.spa === true && options.routerScriptPath) {
     injectRouterScriptTag(doc, options.routerScriptPath);
   }
-  if (options.mode !== "spa") {
+  if (options.spa !== true) {
     injectPrerenderLinks(doc, ir.resources);
   }
   const compactIr = compactIrDocument(ir);
@@ -685,8 +685,11 @@ function buildSpaModuleEntry(html: string, templateId: string): SpaModuleEntry |
     return null;
   }
   const doc = parseHtmlDocument(html);
-  const bodyHtml = doc.body?.outerHTML ?? `<body>${doc.body?.innerHTML ?? ""}</body>`;
   const expanded = expandIrDocument(ir);
+  const cloakElementIds = Array.isArray(expanded.cloakElementIds) ? expanded.cloakElementIds : [];
+  removeSpaCloakDisplay(doc, cloakElementIds);
+  stripWhitespaceNodes(doc.body);
+  const bodyHtml = doc.body?.outerHTML ?? `<body>${doc.body?.innerHTML ?? ""}</body>`;
   const transformScripts = expanded.transformScripts ?? null;
   const persistNamespaces = extractPersistNamespaces(doc);
   return {
@@ -706,12 +709,11 @@ function toSpaModuleFileName(templateId: string): string {
 }
 
 function buildSpaModuleOutput(entry: SpaModuleEntry): { code: string; map: SourceMap } {
-  const timestamp = new Date().toISOString();
-  const bodyHtml = JSON.stringify(entry.bodyHtml);
+  const bodyHtml = toTemplateLiteral(entry.bodyHtml);
   const ir = JSON.stringify(entry.ir);
   const transforms = JSON.stringify(entry.transformScripts);
   const persistNamespaces = JSON.stringify(entry.persistNamespaces);
-  const code = `/* DO NOT EDIT - Generated file (${timestamp}) */
+  const code = `/* DO NOT EDIT - Generated file */
 const spaRuntime = globalThis.__hytdeSpaRuntime;
 if (!spaRuntime) {
   throw new Error("[hytde][spa] runtime globals not available; ensure precompile/standalone entry is loaded.");
@@ -799,19 +801,6 @@ function applySpaRouteParams(params, routePath, urlPath) {
   hy.pathParams = next;
 }
 
-function stripHyCloak(root) {
-  if (!root || typeof root.querySelectorAll !== "function") {
-    return;
-  }
-  const elements = root.querySelectorAll("[hy-cloak]");
-  for (const element of elements) {
-    if (element instanceof HTMLElement) {
-      element.style.removeProperty("display");
-    }
-    element.removeAttribute("hy-cloak");
-  }
-}
-
 export function render(params, data, options) {
   void data;
   if (options && options.hydrate) {
@@ -827,7 +816,6 @@ export function render(params, data, options) {
   if (!parsed.body) {
     throw new Error("[hytde] SPA render did not create a body element.");
   }
-  stripHyCloak(parsed.body);
   return parsed.body;
 }
 
@@ -874,6 +862,72 @@ function extractPersistNamespaces(doc: Document): string[] | null {
     .map((value) => value.trim())
     .filter(Boolean);
   return entries.length > 0 ? entries : null;
+}
+
+function toTemplateLiteral(value: string): string {
+  const escaped = value
+    .replace(/\\\\/g, "\\\\\\\\")
+    .replace(/`/g, "\\\\`")
+    .replace(/\\$\\{/g, "\\\\${");
+  return "`" + escaped + "`";
+}
+
+function removeSpaCloakDisplay(doc: Document, cloakElementIds: string[]): void {
+  for (const id of cloakElementIds) {
+    const element = doc.getElementById(id);
+    if (!element) {
+      continue;
+    }
+    const rawStyle = element.getAttribute("style");
+    if (!rawStyle) {
+      continue;
+    }
+    const nextStyle = rawStyle
+      .split(";")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry) => {
+        const [prop, ...rest] = entry.split(":");
+        const name = prop?.trim().toLowerCase();
+        const value = rest.join(":").trim().toLowerCase();
+        return !(name === "display" && value === "none");
+      });
+    if (nextStyle.length === 0) {
+      element.removeAttribute("style");
+    } else {
+      element.setAttribute("style", nextStyle.join("; "));
+    }
+  }
+}
+
+function stripWhitespaceNodes(root: Element | null): void {
+  if (!root) {
+    return;
+  }
+  const stack: Array<{ node: Node; inPre: boolean }> = [{ node: root, inPre: false }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+    const node = current.node;
+    const inPre = current.inPre;
+    if (node.nodeType === 1) {
+      const element = node as Element;
+      const tag = element.tagName ? element.tagName.toLowerCase() : "";
+      const nextInPre = inPre || tag === "pre" || tag === "textarea" || tag === "script" || tag === "style";
+      const children = Array.from(element.childNodes);
+      for (const child of children) {
+        stack.push({ node: child, inPre: nextInPre });
+      }
+      continue;
+    }
+    if (node.nodeType === 3 && !inPre) {
+      if (!node.textContent || node.textContent.trim() === "") {
+        node.parentNode?.removeChild(node);
+      }
+    }
+  }
 }
 
 function buildSpaModuleSourceMap(entry: SpaModuleEntry, code: string): SourceMap {

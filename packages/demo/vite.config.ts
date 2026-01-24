@@ -23,7 +23,7 @@ export default defineConfig(() => ({
       debug: demoDebug,
       manual: demoManual,
       pathMode: demoPathMode,
-      mode: demoSpa ? "spa" : undefined,
+      spa: demoSpa,
       inputPaths: ["."],
       tailwindSupport: "src/styles.css"
     })
