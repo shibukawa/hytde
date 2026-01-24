@@ -19,12 +19,13 @@ export function initHyPathParams(doc: Document): void {
   }
   const meta = parseHyPathMeta(doc);
   const { params, diagnostics } = resolveHyParamsForLocation(view.location, meta);
-  view.hyParams = params;
+  const merged = { ...(view.hyParams ?? {}), ...params };
+  view.hyParams = merged;
   if (!view.hy) {
     view.hy = { loading: false, errors: [] };
   }
   const hy = view.hy as HyGlobals & Record<string, unknown>;
-  hy.pathParams = params;
+  hy.pathParams = merged;
   (view as unknown as Record<string, unknown>)[PATH_DIAGNOSTIC_KEY] = diagnostics;
 }
 
@@ -205,15 +206,26 @@ function extractPathParams(
   for (let index = 0; index < templateParts.length; index += 1) {
     const part = templateParts[index];
     const value = pathParts[index];
-    const match = part.match(/^\[([^\]]+)\]$/);
-    if (match) {
-      const key = match[1];
-      params[key] = decodeURIComponent(value);
+    if (part === value) {
       continue;
     }
-    if (part !== value) {
+    if (!part.includes("[")) {
       return { params: {}, matched: false };
     }
+    const names: string[] = [];
+    const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regexSource = escaped.replace(/\\\[([^\]]+)\\\]/g, (_raw, name) => {
+      names.push(name);
+      return "([^/]+)";
+    });
+    const regex = new RegExp(`^${regexSource}$`);
+    const match = regex.exec(value);
+    if (!match) {
+      return { params: {}, matched: false };
+    }
+    names.forEach((name, nameIndex) => {
+      params[name] = decodeURIComponent(match[nameIndex + 1] ?? "");
+    });
   }
   return { params, matched: true };
 }

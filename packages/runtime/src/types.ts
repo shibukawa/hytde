@@ -91,6 +91,9 @@ export interface HyGlobals {
     inputType: JsonScalarType,
     fn: (input: JsonScalar, ...args: unknown[]) => JsonScalar
   ) => void;
+  prefetch?: (path: string, params?: Record<string, string | number>) => Promise<void>;
+  onMount?: (callback: () => void) => void;
+  onUnmount?: (callback: () => void) => void;
 }
 
 export interface RuntimeGlobals {

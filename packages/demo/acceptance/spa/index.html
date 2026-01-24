@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <title>Acceptance - SPA Index</title>
+  </head>
+  <body>
+    <section>
+      <h1 data-testid="spa-index">SPA Index</h1>
+      <a href="/acceptance/spa/next.html" hy-prefetch="eager">Go to Next</a>
+      <a href="/acceptance/spa/force.html" hy-prefetch="force" data-testid="spa-force-link">Force Prefetch</a>
+      <a href="/acceptance/spa/resources.html" data-testid="spa-resources-link">Resources Nav</a>
+      <a href="/acceptance/spa/state.html" data-testid="spa-state-link">State Nav</a>
+      <a href="/acceptance/spa/meta.html" data-testid="spa-meta-link">Meta Nav</a>
+      <a href="/acceptance/spa/preserve.html" data-testid="spa-preserve-link">Preserve Nav</a>
+    </section>
+    <div id="spa-preserve" hy-preserve data-testid="spa-preserve">Preserve Me</div>
+    <script type="module">
+      import "@hytde/standalone/debug";
+    </script>
+  </body>
+</html>

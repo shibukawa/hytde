@@ -162,12 +162,37 @@ export interface IrTableDiagnostic {
   detail?: Record<string, unknown>;
 }
 
+export interface IrResourceItem {
+  href?: string;
+  src?: string;
+  critical?: boolean;
+  async?: boolean;
+  defer?: boolean;
+  integrity?: string;
+  crossOrigin?: "anonymous" | "use-credentials";
+}
+
+export interface IrHtmlMetadata {
+  title?: string;
+  htmlAttrs?: Record<string, string>;
+  bodyAttrs?: Record<string, string>;
+  preserveIds?: NodeId[];
+}
+
 export interface IrDocument extends IrBase {
   mockRules: MockRule[];
   parseErrors: ParseError[];
   handlesErrors: boolean;
   hasErrorPopover: boolean;
   transforms: string | null;
+  transformScripts?: string | null;
+  resources?: {
+    css: IrResourceItem[];
+    js: IrResourceItem[];
+    prefetch: string[];
+  };
+  routePath?: string;
+  html?: IrHtmlMetadata;
   textBindings: IrTextBinding[];
   headBindings: IrHeadBinding[];
   attrBindings: IrAttrBinding[];
@@ -416,6 +441,9 @@ export function parseDocumentToIr(
 ): IrDocument {
   const parsed = parseDocument(doc);
   const resolveId = createIdResolver(doc, options.idGenerator);
+  const transforms = extractTransforms(doc);
+  const htmlMeta = extractHtmlMetadata(doc);
+  const routePath = extractRoutePath(doc);
 
   return {
     executionMode: parsed.executionMode,
@@ -423,7 +451,10 @@ export function parseDocumentToIr(
     parseErrors: parsed.parseErrors,
     handlesErrors: parsed.handlesErrors,
     hasErrorPopover: parsed.hasErrorPopover,
-    transforms: extractTransforms(doc),
+    transforms,
+    transformScripts: transforms,
+    routePath: routePath ?? undefined,
+    html: htmlMeta ?? undefined,
     textBindings: parsed.textBindings.map((binding) => ({
       nodeId: resolveId(binding.element),
       expression: binding.expression,
@@ -750,6 +781,79 @@ function extractTransforms(doc: Document): string | null {
     return null;
   }
   return snippets.join("\n");
+}
+
+function extractHtmlMetadata(doc: Document): IrHtmlMetadata | null {
+  const title = doc.title?.trim() ? doc.title.trim() : undefined;
+  const htmlAttrs = collectElementAttributes(doc.documentElement);
+  const bodyAttrs = collectElementAttributes(doc.body);
+  const preserveIds = collectPreserveIds(doc);
+
+  if (!title && !htmlAttrs && !bodyAttrs && preserveIds.length === 0) {
+    return null;
+  }
+
+  return {
+    title,
+    htmlAttrs: htmlAttrs ?? undefined,
+    bodyAttrs: bodyAttrs ?? undefined,
+    preserveIds: preserveIds.length > 0 ? preserveIds : undefined
+  };
+}
+
+function collectElementAttributes(element: Element | null): Record<string, string> | null {
+  if (!element) {
+    return null;
+  }
+  const attrs: Record<string, string> = {};
+  for (const attr of Array.from(element.attributes)) {
+    attrs[attr.name] = attr.value;
+  }
+  return Object.keys(attrs).length > 0 ? attrs : null;
+}
+
+function collectPreserveIds(doc: Document): NodeId[] {
+  const elements = Array.from(doc.querySelectorAll("[hy-preserve][id]"));
+  const ids = new Set<NodeId>();
+  for (const element of elements) {
+    const id = element.getAttribute("id")?.trim();
+    if (id) {
+      ids.add(id);
+    }
+  }
+  return Array.from(ids);
+}
+
+function extractRoutePath(doc: Document): string | null {
+  const meta = doc.querySelector('meta[name="hy-path"]');
+  if (!meta) {
+    return null;
+  }
+  const content = meta.getAttribute("content") ?? "";
+  if (!content.trim()) {
+    return null;
+  }
+  const parsed = parseMetaContent(content);
+  const raw = (parsed.template ?? parsed.path ?? content).trim();
+  return raw ? raw : null;
+}
+
+function parseMetaContent(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const parts = content.split(";").map((part) => part.trim()).filter(Boolean);
+  for (const part of parts) {
+    const [rawKey, ...rest] = part.split("=");
+    if (!rawKey || rest.length === 0) {
+      continue;
+    }
+    const key = rawKey.trim();
+    const value = rest.join("=").trim();
+    if (!key) {
+      continue;
+    }
+    result[key] = value;
+  }
+  return result;
 }
 
 function patternToRegex(pattern: string): RegExp {

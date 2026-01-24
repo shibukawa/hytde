@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-path" content="/spa/index" />
+    <meta name="hy-prefetch" content="/api/prefetch-1" />
+    <link rel="stylesheet" href="/styles/main.css" />
+    <script src="/scripts/app.js" defer></script>
+    <title>SPA Fixture</title>
+  </head>
+  <body>
+    <hy-import src="./partials/header.html"></hy-import>
+    <main>
+      <h1 data-testid="fixture-index">Index</h1>
+    </main>
+    <script>
+      hy.registerTransform("upper", "string", (value) => String(value).toUpperCase());
+    </script>
+  </body>
+</html>

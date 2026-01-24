@@ -16,17 +16,11 @@
       type="text/css"
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              display: ["Space Grotesk", "sans-serif"]
-            }
-          }
-        }
-      };
-    </script>
+    <style type="text/tailwindcss">
+      @theme {
+        --font-display: "Space Grotesk", sans-serif;
+      }
+    </style>
   </head>
   <body class="min-h-screen bg-base-200 text-base-content font-display">
     <main class="min-h-screen p-6">

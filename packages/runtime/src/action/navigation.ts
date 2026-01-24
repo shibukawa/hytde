@@ -17,6 +17,9 @@ export function setupNavigationHandlers(state: RuntimeState): void {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) {
       return;
     }
+    if ((view as typeof globalThis & { __hytdeSpaEnabled?: boolean }).__hytdeSpaEnabled) {
+      return;
+    }
     if (state.pathMeta.mode !== "hash") {
       return;
     }

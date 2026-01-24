@@ -37,6 +37,13 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     return;
   }
   const scope = doc.defaultView ?? globalThis;
+  (scope as typeof globalThis & {
+    __hytdeSpaRuntime?: {
+      createRuntime: typeof createRuntime;
+      initHyPathParams: typeof initHyPathParams;
+      parseSubtree: typeof parseSubtree;
+    };
+  }).__hytdeSpaRuntime = { createRuntime, initHyPathParams, parseSubtree };
   ensureTableApiStub(scope);
   console.debug("[hytde] runtime:parse:start", { readyState: doc.readyState });
 

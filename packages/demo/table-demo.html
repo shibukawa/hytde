@@ -18,18 +18,12 @@
       type="text/css"
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              display: ["Space Grotesk", "sans-serif"],
-              mono: ["IBM Plex Mono", "monospace"]
-            }
-          }
-        }
-      };
-    </script>
+    <style type="text/tailwindcss">
+      @theme {
+        --font-display: "Space Grotesk", sans-serif;
+        --font-mono: "IBM Plex Mono", monospace;
+      }
+    </style>
     <style>
       .is-overdue {
         color: #b91c1c;

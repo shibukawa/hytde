@@ -6,6 +6,9 @@
   "scripts": {
     "predev": "node ../../scripts/copy-msw-worker.mjs",
     "dev": "vite",
+    "dev:spa": "HYTDE_DEMO_SPA=true HYTDE_DEMO_PATH_MODE=hash vite",
+    "dev:spa:hash": "HYTDE_DEMO_SPA=true HYTDE_DEMO_PATH_MODE=hash vite",
+    "dev:spa:path": "HYTDE_DEMO_SPA=true HYTDE_DEMO_PATH_MODE=path vite",
     "dev:demo:prod:hash": "HYTDE_DEMO_DEBUG=false HYTDE_DEMO_PATH_MODE=hash vite",
     "dev:demo:prod:path": "HYTDE_DEMO_DEBUG=false HYTDE_DEMO_PATH_MODE=path vite",
     "dev:demo:debug:hash": "node ../../scripts/copy-msw-worker.mjs && HYTDE_DEMO_DEBUG=true HYTDE_DEMO_PATH_MODE=hash vite",
