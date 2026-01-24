@@ -29,6 +29,10 @@ export function getRuntimeState(
     existing.appendMarkedElements = new Set();
     existing.headBindingFrozen = new WeakSet();
     existing.headBindingWarned = new WeakSet();
+    existing.cloakApplied = false;
+    existing.pathMeta = parseHyPathMeta(doc);
+    existing.pathDiagnostics = null;
+    existing.pathDiagnosticsEmitted = false;
     existing.actionHandlers = {
       handleActionRequest,
       prefetchActionRequest

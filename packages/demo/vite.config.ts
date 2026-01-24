@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import hyTde from "@hytde/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -8,8 +10,10 @@ const demoDebug = process.env.HYTDE_DEMO_DEBUG === "true";
 const demoManual = process.env.HYTDE_DEMO_MANUAL === "true";
 const demoPathMode = process.env.HYTDE_DEMO_PATH_MODE === "path" ? "path" : "hash";
 const demoOutDir = process.env.HYTDE_DEMO_OUT_DIR ?? "dist";
+const demoSpa = process.env.HYTDE_DEMO_SPA === "true";
 const demoApiPort = process.env.HYTDE_DEMO_API_PORT ?? "8787";
 const demoApiTarget = `http://localhost:${demoApiPort}`;
+const demoRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig(() => ({
   appType: "mpa",
@@ -19,11 +23,45 @@ export default defineConfig(() => ({
       debug: demoDebug,
       manual: demoManual,
       pathMode: demoPathMode,
+      spa: demoSpa,
       inputPaths: ["."],
       tailwindSupport: "src/styles.css"
     })
   ],
   server: {
+    configureServer(server) {
+      if (demoPathMode !== "path") {
+        return;
+      }
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url || (req.method !== "GET" && req.method !== "HEAD")) {
+          return next();
+        }
+        const rawPath = decodeURIComponent(req.url.split("?")[0] ?? "");
+        if (
+          rawPath.startsWith("/@")
+          || rawPath.startsWith("/__")
+          || rawPath.startsWith("/api")
+          || extname(rawPath)
+        ) {
+          return next();
+        }
+        const pathname = rawPath.endsWith("/") ? `${rawPath}index` : rawPath;
+        const candidate = resolve(demoRoot, `.${pathname}.html`);
+        if (!candidate.startsWith(demoRoot) || !existsSync(candidate)) {
+          return next();
+        }
+        try {
+          const html = await readFile(candidate, "utf8");
+          const transformed = await server.transformIndexHtml(rawPath, html);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "text/html");
+          res.end(req.method === "HEAD" ? "" : transformed);
+        } catch (error) {
+          next(error);
+        }
+      });
+    },
     proxy: {
       "/api": {
         target: demoApiTarget,

@@ -33,7 +33,15 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
     return;
   }
 
-  console.debug("[hytde] precompile:entry:init", { url: doc.URL });
+  const scope = doc.defaultView ?? globalThis;
+  (scope as typeof globalThis & {
+    __hytdeSpaRuntime?: {
+      createRuntime: typeof createRuntime;
+      initHyPathParams: typeof initHyPathParams;
+      parseSubtree: typeof parseSubtree;
+    };
+  }).__hytdeSpaRuntime = { createRuntime, initHyPathParams, parseSubtree };
+
   initHyPathParams(doc);
   const runtime = createRuntime({
     parseDocument: () => {
@@ -45,19 +53,13 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   const snapshot = readParserSnapshot(doc);
   const normalized = normalizeIrSnapshot(snapshot);
   if (!normalized) {
-    console.error("[hytde] precompile:parser snapshot missing.");
     return;
   }
   const { compact: runtimeIr, verbose: ir } = normalized;
-  const requestTargets = Array.isArray(ir.requestTargets) ? ir.requestTargets : [];
   const parseErrors = Array.isArray(ir.parseErrors) ? (ir.parseErrors as ParseError[]) : [];
   const tables = Array.isArray(ir.tables) ? ir.tables : [];
   const executionMode = ir.executionMode ?? "production";
   const mockRules = Array.isArray(ir.mockRules) ? ir.mockRules : [];
-  console.debug("[hytde] precompile:entry:ir", {
-    executionMode,
-    requestTargets: requestTargets.length
-  });
 
   if (parseErrors.length > 0) {
     const hy = ensureHy(doc.defaultView ?? globalThis);
@@ -82,7 +84,6 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   runtime.init(doc, runtimeIr);
   const hy = ensureHy(doc.defaultView ?? globalThis);
   hy[INIT_DONE_KEY] = true;
-  console.debug("[hytde] precompile:entry:done", { url: doc.URL });
 }
 
 export const hy = { init };
@@ -170,7 +171,7 @@ function readParserSnapshot(doc: Document): unknown | null {
   try {
     return JSON.parse(payload);
   } catch (error) {
-    console.error("[hytde] precompile:parser snapshot parse failed.", error);
+    void error;
     return null;
   }
 }

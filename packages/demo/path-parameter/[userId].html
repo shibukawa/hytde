@@ -24,18 +24,12 @@
       type="text/css"
     />
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              display: ["Space Grotesk", "sans-serif"],
-              mono: ["IBM Plex Mono", "monospace"]
-            }
-          }
-        }
-      };
-    </script>
+    <style type="text/tailwindcss">
+      @theme {
+        --font-display: "Space Grotesk", sans-serif;
+        --font-mono: "IBM Plex Mono", monospace;
+      }
+    </style>
   </head>
   <body hy-cloak style="display: none;" class="min-h-screen bg-base-200 text-base-content font-display">
     <main class="min-h-screen p-4 md:p-6">

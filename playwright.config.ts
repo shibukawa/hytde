@@ -20,6 +20,11 @@ export default defineConfig({
       reuseExistingServer: true
     },
     {
+      command: "HYTDE_DEMO_DEBUG=true HYTDE_DEMO_PATH_MODE=path npm run dev -w packages/demo -- --host 127.0.0.1 --port 5176",
+      url: "http://127.0.0.1:5176",
+      reuseExistingServer: true
+    },
+    {
       command: "bash scripts/build-and-serve-precompiled.sh",
       url: "http://127.0.0.1:5174",
       reuseExistingServer: false
@@ -36,6 +41,13 @@ export default defineConfig({
       use: {
         ...devices["desktop-chrome"],
         baseURL: "http://127.0.0.1:5173"
+      }
+    },
+    {
+      name: "runtime-vite-path",
+      use: {
+        ...devices["desktop-chrome"],
+        baseURL: "http://127.0.0.1:5176"
       }
     },
     {

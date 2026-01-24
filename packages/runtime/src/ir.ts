@@ -163,12 +163,37 @@ export interface IrTableDiagnostic {
   detail?: Record<string, unknown>;
 }
 
+export interface IrResourceItem {
+  href?: string;
+  src?: string;
+  critical?: boolean;
+  async?: boolean;
+  defer?: boolean;
+  integrity?: string;
+  crossOrigin?: "anonymous" | "use-credentials";
+}
+
+export interface IrHtmlMetadata {
+  title?: string;
+  htmlAttrs?: Record<string, string>;
+  bodyAttrs?: Record<string, string>;
+  preserveIds?: NodeId[];
+}
+
 export interface IrDocument extends IrBase {
   mockRules: unknown[];
   parseErrors: Array<{ message: string; detail?: Record<string, unknown> }>;
   handlesErrors: boolean;
   hasErrorPopover: boolean;
   transforms?: string | null;
+  transformScripts?: string | null;
+  resources?: {
+    css: IrResourceItem[];
+    js: IrResourceItem[];
+    prefetch: string[];
+  };
+  routePath?: string;
+  html?: IrHtmlMetadata;
   textBindings: IrTextBinding[];
   headBindings: IrHeadBinding[];
   attrBindings: IrAttrBinding[];

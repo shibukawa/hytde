@@ -1,5 +1,5 @@
 import type { Plugin, IndexHtmlTransformContext, ResolvedConfig } from "vite";
-import type { OutputAsset, OutputBundle } from "rollup";
+import type { OutputAsset, OutputBundle, SourceMap } from "rollup";
 import { parseHTML } from "linkedom";
 import type { Dirent } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { readdir, stat } from "node:fs/promises";
 import { statSync } from "node:fs";
 import { parseDocumentToIr, selectImportExports, compactIrDocument, expandIrDocument } from "@hytde/parser";
-import type { IrDocument } from "@hytde/parser";
+import type { IrDocument, IrResourceItem } from "@hytde/parser";
 
 const PARSER_SNAPSHOT_ID = "hy-precompile-parser";
 const STANDALONE_IMPORT_PATTERN = /@hytde\/standalone(?:\/[a-z-]+)?/g;
@@ -17,6 +17,9 @@ const TAILWIND_VIRTUAL_ID = "virtual:hytde-tailwind.css";
 const TAILWIND_RESOLVED_ID = `\0${TAILWIND_VIRTUAL_ID}`;
 const TAILWIND_ASSET_NAME = "hytde-tailwind.css";
 const TAILWIND_LINK_MARKER = "data-hytde-tailwind";
+const SPA_MODULE_PREFIX = "virtual:hytde-spa:";
+const SPA_MODULE_RESOLVED_PREFIX = "\0hytde-spa:";
+const SPA_MODULE_SUFFIX = ".spa.js";
 
 type MockOption = "default" | true | false;
 
@@ -27,6 +30,9 @@ type HyTdePluginOptions = {
   manual?: boolean;
   inputPaths?: string[];
   disableSSR?: boolean;
+  spa?: boolean;
+  manifestPath?: string;
+  routerScriptPath?: string;
   /**
    * Enable Tailwind v4 processing for precompiled output.
    * - `true`: uses a virtual stylesheet with `@import "tailwindcss"`.
@@ -42,6 +48,10 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
   let resolvedConfig: ResolvedConfig | null = null;
   let tailwindSupport: Promise<TailwindSupportConfig | null> | null = null;
   const ssrTemplates = new Map<string, string>();
+  const spaModules = new Map<string, SpaModuleEntry>();
+  const staticHtmlOutputs = new Map<string, string>();
+  const spaEnabled = options.spa === true;
+  const manifestConfig = resolveManifestConfig(options.manifestPath);
   let mswWorkerPathPromise: Promise<string | null> | null = null;
   const shouldEmitSsr = () => Boolean(resolvedConfig && resolvedConfig.command === "build" && options.disableSSR !== true);
 
@@ -83,6 +93,12 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
       if (source === TAILWIND_RESOLVED_ID) {
         return source;
       }
+      if (source.startsWith(SPA_MODULE_PREFIX)) {
+        return `${SPA_MODULE_RESOLVED_PREFIX}${source.slice(SPA_MODULE_PREFIX.length)}`;
+      }
+      if (source.startsWith(SPA_MODULE_RESOLVED_PREFIX)) {
+        return source;
+      }
       if (resolvedConfig?.command === "serve") {
         const localPrecompile = resolveLocalPrecompileEntry(source, rootDir);
         if (localPrecompile) {
@@ -108,6 +124,14 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
     load(id) {
       if (id === TAILWIND_RESOLVED_ID) {
         return '@import "tailwindcss";\n';
+      }
+      if (id.startsWith(SPA_MODULE_RESOLVED_PREFIX)) {
+        const templateId = id.slice(SPA_MODULE_RESOLVED_PREFIX.length);
+        const entry = spaModules.get(templateId);
+        if (!entry) {
+          return null;
+        }
+        return buildSpaModuleOutput(entry);
       }
       return null;
     },
@@ -138,9 +162,79 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
         const fileName = result.templateId.replace(/\.html?$/, ".ssr.json");
         ssrTemplates.set(fileName, JSON.stringify(result.ssrTemplate));
       }
+      if (spaEnabled && resolvedConfig?.command === "build" && result.templateId) {
+        const entry = buildSpaModuleEntry(result.html, result.templateId);
+        if (entry) {
+          spaModules.set(result.templateId, entry);
+        }
+      }
+      if (resolvedConfig?.command === "build" && result.templateId) {
+        staticHtmlOutputs.set(result.templateId, result.html);
+      }
       return result.html;
     },
-    generateBundle(_options, bundle) {
+    async generateBundle(_options, bundle) {
+      if (spaEnabled && resolvedConfig?.command === "build") {
+        const moduleEntries = new Map<string, SpaModuleEntry>();
+        for (const entry of spaModules.values()) {
+          moduleEntries.set(entry.templateId, entry);
+        }
+        const htmlEntries = collectSpaHtmlEntries(bundle, staticHtmlOutputs);
+        for (const [templateId, html] of htmlEntries.entries()) {
+          if (moduleEntries.has(templateId)) {
+            continue;
+          }
+          const entry = buildSpaModuleEntry(html, templateId);
+          if (entry) {
+            moduleEntries.set(templateId, entry);
+          }
+        }
+        for (const entry of moduleEntries.values()) {
+          const output = buildSpaModuleOutput(entry);
+          const mapFile = `${entry.fileName}.map`;
+          const mapRef = `${basename(entry.fileName)}.map`;
+          const code = `${output.code}\n//# sourceMappingURL=${mapRef}`;
+          bundle[entry.fileName] = createOutputAsset(entry.fileName, code);
+          bundle[mapFile] = createOutputAsset(mapFile, output.map.toString());
+        }
+        const manifest = await buildRouteManifest(rootDir, options.inputPaths, { moduleSuffix: SPA_MODULE_SUFFIX });
+        if (Object.keys(manifest).length > 0) {
+          this.emitFile({
+            type: "asset",
+            fileName: manifestConfig.fileName,
+            source: JSON.stringify(manifest, null, 2)
+          });
+        }
+        spaModules.clear();
+      }
+      if (resolvedConfig?.command === "build" && staticHtmlOutputs.size > 0) {
+        const emitted = new Set<string>();
+        for (const output of Object.values(bundle)) {
+          if (output.type !== "asset" || !output.fileName.endsWith(".html")) {
+            continue;
+          }
+          const key = toPosixPath(output.fileName);
+          const html = staticHtmlOutputs.get(key);
+          if (!html) {
+            continue;
+          }
+          validateStaticHtmlOutput(html, key);
+          output.source = html;
+          emitted.add(key);
+        }
+        for (const [fileName, html] of staticHtmlOutputs.entries()) {
+          if (emitted.has(fileName)) {
+            continue;
+          }
+          validateStaticHtmlOutput(html, fileName);
+          this.emitFile({
+            type: "asset",
+            fileName,
+            source: html
+          });
+        }
+        staticHtmlOutputs.clear();
+      }
       if (!shouldEmitSsr()) {
         ssrTemplates.clear();
         return;
@@ -174,10 +268,36 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
       ssrTemplates.clear();
     },
     async writeBundle() {
-      if (!shouldEmitSsr() || !resolvedConfig) {
+      if (!resolvedConfig) {
         return;
       }
       const outDir = resolve(rootDir, resolvedConfig.build.outDir ?? "dist");
+      if (spaEnabled && resolvedConfig.command === "build") {
+        const htmlOutputs = await collectHtmlOutputs(outDir);
+        for (const htmlPath of htmlOutputs) {
+          const source = await readFile(htmlPath, "utf8").catch(() => null);
+          if (!source) {
+            continue;
+          }
+          const templateId = toPosixPath(relative(outDir, htmlPath));
+          const entry = buildSpaModuleEntry(source, templateId);
+          if (!entry) {
+            continue;
+          }
+          const output = buildSpaModuleOutput(entry);
+          const mapFile = `${entry.fileName}.map`;
+          const mapRef = `${basename(entry.fileName)}.map`;
+          const modulePath = resolve(outDir, entry.fileName);
+          const mapPath = resolve(outDir, mapFile);
+          await mkdir(dirname(modulePath), { recursive: true });
+          const code = `${output.code}\n//# sourceMappingURL=${mapRef}`;
+          await writeFile(modulePath, code);
+          await writeFile(mapPath, output.map.toString());
+        }
+      }
+      if (!shouldEmitSsr()) {
+        return;
+      }
       const htmlOutputs = await collectHtmlOutputs(outDir);
       for (const htmlPath of htmlOutputs) {
         const source = await readFile(htmlPath, "utf8").catch(() => null);
@@ -198,6 +318,20 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = req.url?.split("?")[0] ?? "";
+        if (spaEnabled && url === manifestConfig.urlPath) {
+          if (req.method !== "GET" && req.method !== "HEAD") {
+            res.statusCode = 405;
+            res.end();
+            return;
+          }
+          const manifest = await buildRouteManifest(rootDir, options.inputPaths);
+          const payload = JSON.stringify(manifest, null, 2);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/json");
+          res.setHeader("Cache-Control", "no-cache");
+          res.end(req.method === "HEAD" ? "" : payload);
+          return;
+        }
         if (url === "/mockServiceWorker.js") {
           if (!mswWorkerPathPromise) {
             mswWorkerPathPromise = resolveMswWorkerPath(rootDir);
@@ -271,6 +405,16 @@ type PrecompileResult = {
   templateId?: string | null;
 };
 
+type SpaModuleEntry = {
+  templateId: string;
+  fileName: string;
+  templateHtml: string;
+  bodyHtml: string;
+  ir: IrDocument;
+  transformScripts: string | null;
+  persistNamespaces: string[] | null;
+};
+
 type SlotifiedTemplate = {
   version: 1;
   templateId: string;
@@ -313,15 +457,31 @@ async function precompileHtml(
     ? createStableIdGenerator(templateId, locationMap)
     : undefined;
   const ir = parseDocumentToIr(doc, { idGenerator });
+  const resources = extractResources(doc, basePath, rootDir);
+  if (resources) {
+    ir.resources = resources;
+  }
+  if (!ir.routePath && templateId) {
+    ir.routePath = `/${templateId}`;
+  }
   clearTextBindingPlaceholders(doc, ir);
   stripPrototypingArtifacts(doc);
   normalizeSelectAnchors(doc);
   applyTailwindSupport(doc, tailwindSupport);
+  stripTailwindCdn(doc, tailwindSupport);
   const isDebug = resolveRuntimeDebugMode(ctx, options, resolvedConfig);
   applyMockHandling(doc, ir, options, resolvedConfig, isDebug);
   normalizeTemplateHtml(ir);
   applyPathModeHandling(doc, ctx, options);
-  injectParserSnapshot(doc, compactIrDocument(ir));
+  if (options.spa === true && options.routerScriptPath) {
+    injectRouterScriptTag(doc, options.routerScriptPath);
+  }
+  if (options.spa !== true) {
+    injectPrerenderLinks(doc, ir.resources);
+  }
+  const compactIr = compactIrDocument(ir);
+  validateIrSnapshot(compactIr, templateId);
+  injectParserSnapshot(doc, compactIr);
   replaceRuntimeImports(doc, ctx, options, resolvedConfig, rootDir);
   const htmlOutput = serializeDocument(doc);
   const ssrTemplate = emitSsr && templateId ? buildSlotifiedTemplate(htmlOutput, ir, templateId) : undefined;
@@ -415,6 +575,93 @@ function parseHtmlDocument(html: string): Document {
   return document as unknown as Document;
 }
 
+function extractResources(
+  doc: Document,
+  basePath: string,
+  rootDir: string
+): IrDocument["resources"] | null {
+  const css: IrResourceItem[] = [];
+  const js: IrResourceItem[] = [];
+  const prefetch: string[] = [];
+
+  const links = Array.from(doc.querySelectorAll('link[rel="stylesheet"]'));
+  for (const link of links) {
+    const href = link.getAttribute("href");
+    if (!href) {
+      continue;
+    }
+    const resolved = resolveResourceUrl(href, basePath, rootDir);
+    css.push({
+      href: resolved ?? href,
+      integrity: link.getAttribute("integrity") ?? undefined,
+      crossOrigin: parseCrossOrigin(link.getAttribute("crossorigin")),
+      critical: link.hasAttribute("critical") || undefined
+    });
+  }
+
+  const scripts = Array.from(doc.querySelectorAll("script[src]"));
+  for (const script of scripts) {
+    const src = script.getAttribute("src");
+    if (!src) {
+      continue;
+    }
+    const resolved = resolveResourceUrl(src, basePath, rootDir);
+    js.push({
+      src: resolved ?? src,
+      integrity: script.getAttribute("integrity") ?? undefined,
+      crossOrigin: parseCrossOrigin(script.getAttribute("crossorigin")),
+      async: script.hasAttribute("async") || undefined,
+      defer: script.hasAttribute("defer") || undefined,
+      critical: script.hasAttribute("critical") || undefined
+    });
+  }
+
+  const metaPrefetch = Array.from(doc.querySelectorAll('meta[name="hy-prefetch"]'));
+  for (const meta of metaPrefetch) {
+    const content = meta.getAttribute("content") ?? "";
+    const urls = content
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    for (const url of urls) {
+      const resolved = resolveResourceUrl(url, basePath, rootDir);
+      prefetch.push(resolved ?? url);
+    }
+  }
+
+  if (css.length === 0 && js.length === 0 && prefetch.length === 0) {
+    return null;
+  }
+
+  return { css, js, prefetch };
+}
+
+function resolveResourceUrl(value: string, basePath: string, rootDir: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/.test(trimmed)) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("/")) {
+    return trimmed;
+  }
+  const baseDir = dirname(basePath);
+  const resolved = resolve(baseDir, trimmed);
+  if (!resolved.startsWith(rootDir)) {
+    return trimmed;
+  }
+  return `/${toPosixPath(relative(rootDir, resolved))}`;
+}
+
+function parseCrossOrigin(value: string | null): "anonymous" | "use-credentials" | undefined {
+  if (value === "anonymous" || value === "use-credentials") {
+    return value;
+  }
+  return undefined;
+}
+
 function extractIrFromHtml(html: string): IrDocument | null {
   const doc = parseHtmlDocument(html);
   const script = doc.getElementById(PARSER_SNAPSHOT_ID);
@@ -430,6 +677,273 @@ function extractIrFromHtml(html: string): IrDocument | null {
   } catch {
     return null;
   }
+}
+
+function buildSpaModuleEntry(html: string, templateId: string): SpaModuleEntry | null {
+  const ir = extractIrFromHtml(html);
+  if (!ir) {
+    return null;
+  }
+  const doc = parseHtmlDocument(html);
+  const expanded = expandIrDocument(ir);
+  const cloakElementIds = Array.isArray(expanded.cloakElementIds) ? expanded.cloakElementIds : [];
+  removeSpaCloakDisplay(doc, cloakElementIds);
+  stripWhitespaceNodes(doc.body);
+  const bodyHtml = doc.body?.outerHTML ?? `<body>${doc.body?.innerHTML ?? ""}</body>`;
+  const transformScripts = expanded.transformScripts ?? null;
+  const persistNamespaces = extractPersistNamespaces(doc);
+  return {
+    templateId,
+    fileName: toSpaModuleFileName(templateId),
+    templateHtml: html,
+    bodyHtml,
+    ir,
+    transformScripts,
+    persistNamespaces
+  };
+}
+
+function toSpaModuleFileName(templateId: string): string {
+  const normalized = templateId.replace(/\.html?$/, "");
+  return `${normalized}${SPA_MODULE_SUFFIX}`;
+}
+
+function buildSpaModuleOutput(entry: SpaModuleEntry): { code: string; map: SourceMap } {
+  const bodyHtml = toTemplateLiteral(entry.bodyHtml);
+  const ir = JSON.stringify(entry.ir);
+  const transforms = JSON.stringify(entry.transformScripts);
+  const persistNamespaces = JSON.stringify(entry.persistNamespaces);
+  const code = `/* DO NOT EDIT - Generated file */
+const spaRuntime = globalThis.__hytdeSpaRuntime;
+if (!spaRuntime) {
+  throw new Error("[hytde][spa] runtime globals not available; ensure precompile/standalone entry is loaded.");
+}
+const { createRuntime, initHyPathParams, parseSubtree } = spaRuntime;
+
+export const ir = ${ir};
+export const transforms = ${transforms};
+export const persistNamespaces = ${persistNamespaces};
+
+const runtime = createRuntime({
+  parseDocument: () => {
+    throw new Error("parseDocument is not available in SPA runtime.");
+  },
+  parseSubtree
+});
+
+let transformsRegistered = false;
+
+function resolveSpaUrlPath(options) {
+  const rawUrl = options && options.url ? String(options.url) : "";
+  if (rawUrl) {
+    try {
+      return new URL(rawUrl, window.location.origin).pathname || "";
+    } catch {
+      return rawUrl.split(/[?#]/)[0] || "";
+    }
+  }
+  return window.location.pathname || "";
+}
+
+function syncHyPathMeta(routePath) {
+  if (!routePath || typeof document === "undefined") {
+    return;
+  }
+  const head = document.head;
+  if (!head) {
+    return;
+  }
+  let meta = head.querySelector('meta[name="hy-path"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.setAttribute("name", "hy-path");
+    head.appendChild(meta);
+  }
+  meta.setAttribute("content", routePath);
+}
+
+function parseRouteParams(routePath, urlPath) {
+  if (!routePath || !urlPath) {
+    return {};
+  }
+  const names = [];
+  const escaped = routePath.replace(/[.*+?^{}()|[\\]\\\\$]/g, "\\\\$&");
+  const regexSource = escaped.replace(/\\\\\\[([^\\]]+)\\\\\\]/g, (_raw, name) => {
+    names.push(name);
+    return "([^/]+)";
+  });
+  const regex = new RegExp("^" + regexSource + "$");
+  const match = regex.exec(urlPath);
+  if (!match) {
+    return {};
+  }
+  const params = {};
+  names.forEach((name, index) => {
+    params[name] = decodeURIComponent(match[index + 1] || "");
+  });
+  return params;
+}
+
+function applySpaRouteParams(params, routePath, urlPath) {
+  if (!params || typeof params !== "object" || !routePath) {
+    return;
+  }
+  const overrides = { ...params };
+  const parsed = parseRouteParams(routePath, urlPath);
+  const next = { ...parsed, ...overrides };
+  for (const key of Object.keys(params)) {
+    delete params[key];
+  }
+  Object.assign(params, next);
+  const scope = typeof window !== "undefined" ? window : globalThis;
+  const hy = scope.hy ?? (scope.hy = { loading: false, errors: [] });
+  scope.hyParams = next;
+  hy.pathParams = next;
+}
+
+export function render(params, data, options) {
+  void data;
+  if (options && options.hydrate) {
+    return document.body;
+  }
+  const routePath = options && options.routePath ? String(options.routePath) : "";
+  if (routePath) {
+    syncHyPathMeta(routePath);
+    applySpaRouteParams(params, routePath, resolveSpaUrlPath(options));
+  }
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(${bodyHtml}, "text/html");
+  if (!parsed.body) {
+    throw new Error("[hytde] SPA render did not create a body element.");
+  }
+  return parsed.body;
+}
+
+export function registerTransforms(hy) {
+  if (transformsRegistered) {
+    return;
+  }
+  if (typeof transforms !== "string" || !transforms.trim()) {
+    transformsRegistered = true;
+    return;
+  }
+  try {
+    const runner = new Function("hy", transforms);
+    runner(hy);
+    transformsRegistered = true;
+  } catch {}
+}
+
+export function init(data) {
+  const scope = typeof window !== "undefined" ? window : globalThis;
+  if (data && typeof data === "object") {
+    scope.hyState = data;
+  }
+  const hy = scope.hy ?? (scope.hy = { loading: false, errors: [] });
+  registerTransforms(hy);
+  initHyPathParams(document);
+  runtime.init(document, ir);
+}
+`;
+  const map = buildSpaModuleSourceMap(entry, code);
+  return { code, map };
+}
+
+function extractPersistNamespaces(doc: Document): string[] | null {
+  const meta = doc.querySelector('meta[name="hy-persist-state"]');
+  const content = meta?.getAttribute("content")?.trim();
+  if (!content) {
+    return null;
+  }
+  const entries = content
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return entries.length > 0 ? entries : null;
+}
+
+function toTemplateLiteral(value: string): string {
+  const escaped = value
+    .replace(/\\\\/g, "\\\\\\\\")
+    .replace(/`/g, "\\\\`")
+    .replace(/\\$\\{/g, "\\\\${");
+  return "`" + escaped + "`";
+}
+
+function removeSpaCloakDisplay(doc: Document, cloakElementIds: string[]): void {
+  for (const id of cloakElementIds) {
+    const element = doc.getElementById(id);
+    if (!element) {
+      continue;
+    }
+    const rawStyle = element.getAttribute("style");
+    if (!rawStyle) {
+      continue;
+    }
+    const nextStyle = rawStyle
+      .split(";")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry) => {
+        const [prop, ...rest] = entry.split(":");
+        const name = prop?.trim().toLowerCase();
+        const value = rest.join(":").trim().toLowerCase();
+        return !(name === "display" && value === "none");
+      });
+    if (nextStyle.length === 0) {
+      element.removeAttribute("style");
+    } else {
+      element.setAttribute("style", nextStyle.join("; "));
+    }
+  }
+}
+
+function stripWhitespaceNodes(root: Element | null): void {
+  if (!root) {
+    return;
+  }
+  const stack: Array<{ node: Node; inPre: boolean }> = [{ node: root, inPre: false }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+    const node = current.node;
+    const inPre = current.inPre;
+    if (node.nodeType === 1) {
+      const element = node as Element;
+      const tag = element.tagName ? element.tagName.toLowerCase() : "";
+      const nextInPre = inPre || tag === "pre" || tag === "textarea" || tag === "script" || tag === "style";
+      const children = Array.from(element.childNodes);
+      for (const child of children) {
+        stack.push({ node: child, inPre: nextInPre });
+      }
+      continue;
+    }
+    if (node.nodeType === 3 && !inPre) {
+      if (!node.textContent || node.textContent.trim() === "") {
+        node.parentNode?.removeChild(node);
+      }
+    }
+  }
+}
+
+function buildSpaModuleSourceMap(entry: SpaModuleEntry, code: string): SourceMap {
+  const source = entry.templateHtml;
+  const raw = {
+    version: 3,
+    file: entry.fileName,
+    sources: [entry.templateId],
+    sourcesContent: [source],
+    names: [],
+    mappings: ""
+  };
+  const json = () => JSON.stringify(raw);
+  return {
+    ...raw,
+    toString: () => json(),
+    toUrl: () => `data:application/json;charset=utf-8,${encodeURIComponent(json())}`
+  };
 }
 
 function resolveBasePath(ctx: IndexHtmlTransformContext | undefined, rootDir: string): string {
@@ -716,7 +1230,7 @@ function applyTailwindSupport(doc: Document, support: TailwindSupportConfig | nu
   if (!support) {
     return;
   }
-  if (hasTailwindCdn(doc)) {
+  if (!hasTailwindCdn(doc)) {
     return;
   }
   if (doc.querySelector(`link[${TAILWIND_LINK_MARKER}]`)) {
@@ -731,6 +1245,21 @@ function applyTailwindSupport(doc: Document, support: TailwindSupportConfig | nu
   link.href = support.href;
   link.setAttribute(TAILWIND_LINK_MARKER, "true");
   head.appendChild(link);
+}
+
+function stripTailwindCdn(doc: Document, support: TailwindSupportConfig | null): void {
+  if (!support) {
+    return;
+  }
+  if (!hasTailwindCdn(doc)) {
+    return;
+  }
+  for (const script of Array.from(doc.querySelectorAll('script[src*="cdn.tailwindcss.com"]'))) {
+    script.remove();
+  }
+  for (const style of Array.from(doc.querySelectorAll('style[type="text/tailwindcss"]'))) {
+    style.remove();
+  }
 }
 
 function findTailwindCssAsset(
@@ -810,6 +1339,122 @@ function injectParserSnapshot(doc: Document, ir: unknown): void {
     return;
   }
   doc.documentElement?.appendChild(script);
+}
+
+function injectPrerenderLinks(
+  doc: Document,
+  resources: IrDocument["resources"] | null | undefined
+): void {
+  if (!resources?.prefetch || resources.prefetch.length === 0) {
+    return;
+  }
+  const head = doc.head ?? doc.querySelector("head");
+  if (!head) {
+    return;
+  }
+  const existing = new Set<string>();
+  for (const link of Array.from(head.querySelectorAll('link[rel="prerender"][href]'))) {
+    const href = link.getAttribute("href");
+    if (href) {
+      existing.add(href);
+    }
+  }
+  for (const href of resources.prefetch) {
+    if (!href || existing.has(href)) {
+      continue;
+    }
+    const link = doc.createElement("link");
+    link.setAttribute("rel", "prerender");
+    link.setAttribute("href", href);
+    head.appendChild(link);
+    existing.add(href);
+  }
+}
+
+function injectRouterScriptTag(doc: Document, routerScriptPath?: string): void {
+  const path = routerScriptPath ?? "/router.js";
+  if (!path) {
+    return;
+  }
+  const body = doc.body ?? doc.querySelector("body");
+  if (!body) {
+    return;
+  }
+  const existing = Array.from(body.querySelectorAll("script[src]")).some(
+    (script) => script.getAttribute("src") === path
+  );
+  if (existing) {
+    return;
+  }
+  const script = doc.createElement("script");
+  script.setAttribute("src", path);
+  script.setAttribute("defer", "");
+  body.appendChild(script);
+}
+
+function validateStaticHtmlOutput(html: string, templateId: string): void {
+  const doc = parseHtmlDocument(html);
+  if (!doc.documentElement || !doc.body) {
+    console.warn("[hytde] static html missing root elements", { templateId });
+  }
+  const snapshot = doc.getElementById(PARSER_SNAPSHOT_ID);
+  if (!snapshot) {
+    console.warn("[hytde] static html missing parser snapshot", { templateId });
+  }
+}
+
+function collectSpaHtmlEntries(
+  bundle: OutputBundle,
+  staticHtml: Map<string, string>
+): Map<string, string> {
+  const entries = new Map<string, string>();
+  for (const [fileName, html] of staticHtml.entries()) {
+    if (html) {
+      entries.set(fileName, html);
+    }
+  }
+  for (const output of Object.values(bundle)) {
+    if (output.type !== "asset" || !output.fileName.endsWith(".html")) {
+      continue;
+    }
+    const html = readAssetSource(output);
+    if (html) {
+      const key = toPosixPath(output.fileName);
+      if (!entries.has(key)) {
+        entries.set(key, html);
+      }
+    }
+  }
+  return entries;
+}
+
+function createOutputAsset(fileName: string, source: string): OutputAsset {
+  return {
+    type: "asset",
+    fileName,
+    name: fileName,
+    names: [fileName],
+    originalFileName: null,
+    originalFileNames: [],
+    needsCodeReference: false,
+    source
+  };
+}
+
+function validateIrSnapshot(snapshot: unknown, templateId: string | null): void {
+  if (!snapshot || typeof snapshot !== "object") {
+    console.warn("[hytde] invalid IR snapshot", { templateId });
+    return;
+  }
+  try {
+    JSON.stringify(snapshot);
+  } catch (error) {
+    console.warn("[hytde] IR snapshot not serializable", { templateId, error });
+  }
+  const record = snapshot as Record<string, unknown>;
+  if (!("tb" in record) && !("rt" in record) && !("ic" in record) && !("m" in record)) {
+    console.warn("[hytde] IR snapshot missing compact keys", { templateId });
+  }
 }
 
 
@@ -1463,6 +2108,112 @@ function ensureDomGlobals(window: {
       scope[key] = value;
     }
   }
+}
+
+type RouteManifest = Record<string, string>;
+
+type ManifestConfig = {
+  urlPath: string;
+  fileName: string;
+};
+
+function resolveManifestConfig(manifestPath?: string): ManifestConfig {
+  const fallback = "route-manifest.json";
+  const raw = (manifestPath ?? fallback).trim() || fallback;
+  const urlPath = raw.startsWith("/") ? raw : `/${raw}`;
+  const fileName = raw.replace(/^\/+/, "");
+  return { urlPath, fileName };
+}
+
+async function buildRouteManifest(
+  rootDir: string,
+  inputPaths?: string[],
+  options: { moduleSuffix?: string } = {}
+): Promise<RouteManifest> {
+  const entries = await collectHtmlEntries(rootDir, inputPaths);
+  const manifest: RouteManifest = {};
+  for (const entry of entries) {
+    const html = await readFile(entry, "utf8").catch(() => null);
+    if (!html) {
+      continue;
+    }
+    const routePath = resolveRoutePathFromHtml(html, entry, rootDir);
+    if (!routePath) {
+      console.warn("[hytde] route manifest skipped; missing route path", { entry });
+      continue;
+    }
+    const relativePath = toPosixPath(relative(rootDir, entry));
+    const modulePath = options.moduleSuffix
+      ? `/${relativePath.replace(/\.html?$/, options.moduleSuffix)}`
+      : `/${relativePath}`;
+    addRouteManifestEntry(manifest, routePath, modulePath);
+  }
+  return manifest;
+}
+
+function resolveRoutePathFromHtml(html: string, entry: string, rootDir: string): string | null {
+  const doc = parseHtmlDocument(html);
+  const meta = doc.querySelector('meta[name="hy-path"]');
+  const content = meta?.getAttribute("content")?.trim();
+  if (content) {
+    return normalizeRoutePath(content);
+  }
+  const relativePath = toPosixPath(relative(rootDir, entry));
+  if (!relativePath) {
+    return null;
+  }
+  return normalizeRoutePath(`/${relativePath}`);
+}
+
+function normalizeRoutePath(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function addRouteManifestEntry(manifest: RouteManifest, routePath: string, modulePath: string): void {
+  if (!routePath) {
+    return;
+  }
+  if (manifest[routePath] && manifest[routePath] !== modulePath) {
+    console.warn("[hytde] route manifest duplicate; overwriting", { routePath, modulePath, previous: manifest[routePath] });
+  }
+  manifest[routePath] = modulePath;
+  for (const alias of buildRouteAliases(routePath)) {
+    if (manifest[alias] && manifest[alias] !== modulePath) {
+      console.warn("[hytde] route manifest alias duplicate; overwriting", {
+        routePath,
+        alias,
+        modulePath,
+        previous: manifest[alias]
+      });
+    }
+    manifest[alias] = modulePath;
+  }
+}
+
+function buildRouteAliases(routePath: string): string[] {
+  const aliases: string[] = [];
+  if (routePath.endsWith("/index.html")) {
+    const base = routePath.slice(0, -"/index.html".length);
+    aliases.push(base || "/");
+  }
+  if (routePath.endsWith(".html")) {
+    aliases.push(routePath.slice(0, -".html".length));
+  }
+  const unique = new Set<string>();
+  const normalized: string[] = [];
+  for (const alias of aliases) {
+    const next = normalizeRoutePath(alias);
+    if (!next || unique.has(next)) {
+      continue;
+    }
+    unique.add(next);
+    normalized.push(next);
+  }
+  return normalized;
 }
 
 function normalizeResolvedId(resolved: unknown): { id: string } | null {

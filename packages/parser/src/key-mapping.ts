@@ -31,6 +31,7 @@ export const VERBOSE_TO_COMPACT: Record<string, string> = {
   selector: "s",
   selectorParts: "sp",
   transforms: "tr",
+  transformScripts: "ts",
   nodes: "ns",
   kind: "k",
   expression: "e",
@@ -94,7 +95,24 @@ export const VERBOSE_TO_COMPACT: Record<string, string> = {
   max: "mx",
   value: "v",
   name: "nm",
-  args: "ar"
+  args: "ar",
+  resources: "rs",
+  routePath: "rph",
+  html: "ht",
+  htmlAttrs: "ha",
+  bodyAttrs: "ba",
+  preserveIds: "pid",
+  title: "tl",
+  css: "c",
+  js: "j",
+  prefetch: "pf",
+  href: "h",
+  src: "sr",
+  critical: "cr",
+  async: "as",
+  defer: "df",
+  integrity: "ig",
+  crossOrigin: "co"
 };
 
 export const COMPACT_TO_VERBOSE: Record<string, string> = buildReverseMapping(VERBOSE_TO_COMPACT);

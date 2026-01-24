@@ -22,23 +22,14 @@ export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime
   });
 
   const initWithDocument = (doc: Document): void => {
-    console.debug("[hytde] precompile:init:start", { url: doc.URL });
     const snapshot = readParserSnapshot(doc);
     const normalized = normalizeIrSnapshot(snapshot);
     if (!normalized) {
-      console.error("[hytde] precompile:parser snapshot missing.");
       return;
     }
     const { compact: runtimeIr, verbose: ir } = normalized;
-    const executionMode = ir.executionMode ?? "production";
-    const requestTargets = Array.isArray(ir.requestTargets) ? ir.requestTargets : [];
-    console.debug("[hytde] precompile:init:ir", {
-      executionMode,
-      requestTargets: requestTargets.length
-    });
     initHyPathParams(doc);
     runtime.init(doc, runtimeIr);
-    console.debug("[hytde] precompile:init:done", { url: doc.URL });
   };
 
   const doc = resolveDocument(root);
@@ -81,7 +72,7 @@ function readParserSnapshot(doc: Document): unknown | null {
   try {
     return JSON.parse(payload);
   } catch (error) {
-    console.error("[hytde] precompile:parser snapshot parse failed.", error);
+    void error;
     return null;
   }
 }

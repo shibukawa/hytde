@@ -26,6 +26,7 @@ import { maybeUpdateHistoryOnSubmit } from "../history/runtime.js";
 import { clearFormStateOnRequest, disableFormControls, restoreFormControls } from "../form/form-state.js";
 import { emitAsyncUploadError } from "../uploader/async-upload-errors.js";
 import { prepareAsyncUploadSubmission, scheduleClearAfterSubmit } from "../uploader/async-upload.js";
+import { readHyGetPrefetch } from "../spa/prefetch.js";
 
 export function resolveRequestUrl(target: ParsedRequestTarget, state: RuntimeState): InterpolationResult {
   const scope = buildRequestScope(target, state);
@@ -252,6 +253,20 @@ export async function handleRequest(
   const { element } = target;
   if (!element.isConnected) {
     return false;
+  }
+  if (target.kind === "fetch" && target.method === "GET" && target.trigger === "startup") {
+    const resolved = resolveRequestUrl(target, state);
+    const cached = readHyGetPrefetch(resolved.value);
+    if (cached) {
+      applyRequestPayload(target, cached.payload, state);
+      emitLog(state, {
+        type: "info",
+        message: "prefetch:hit",
+        detail: { url: resolved.value },
+        timestamp: Date.now()
+      });
+      return true;
+    }
   }
   if (target.kind === "stream") {
     await handleStreamRequest(target, state);

@@ -17,6 +17,7 @@ import type { IrDocument } from "./ir.js";
 import { buildParsedDocumentFromIr } from "./ir.js";
 import type { RuntimeState } from "./state.js";
 import { applySsrStateToGlobals, readSsrState, seedPrefetchCache } from "./ssr.js";
+import { SpaRouter } from "./spa/router.js";
 
 export type {
   AsyncUploadEntry,
@@ -56,6 +57,8 @@ declare global {
   var hy: import("./types").HyGlobals | undefined;
   // eslint-disable-next-line no-var
   var hyParams: Record<string, string> | undefined;
+  // eslint-disable-next-line no-var
+  var hyRouter: SpaRouter | undefined;
 }
 
 const globalScope = typeof globalThis !== "undefined" ? globalThis : undefined;
@@ -96,8 +99,30 @@ export function createRuntime(parser: ParserAdapter): Runtime {
       setupNavigationHandlers(state);
 
       void bootstrapRuntime(state);
+      initSpaRouter(scope, doc);
     }
   };
+}
+
+function initSpaRouter(scope: typeof globalThis, doc: Document): void {
+  const view = doc.defaultView;
+  if (!view) {
+    return;
+  }
+  if (view.hyRouter) {
+    return;
+  }
+  fetch("/route-manifest.json", { method: "HEAD" })
+    .then((response) => {
+      if (!response.ok) {
+        return;
+      }
+      const router = new SpaRouter();
+      view.hyRouter = router;
+      (view as typeof globalThis & { __hytdeSpaEnabled?: boolean }).__hytdeSpaEnabled = true;
+      void router.init();
+    })
+    .catch(() => undefined);
 }
 
 async function bootstrapRuntime(state: RuntimeState): Promise<void> {
@@ -120,15 +145,8 @@ async function bootstrapRuntime(state: RuntimeState): Promise<void> {
 }
 
 async function runStartupRequests(state: RuntimeState): Promise<void> {
-  const requests: Promise<unknown>[] = [];
-
-  for (const target of state.parsed.requestTargets) {
-    if (target.trigger !== "startup") {
-      continue;
-    }
-
-    requests.push(handleRequest(target, state));
+  const requests = state.parsed.requestTargets.filter((target) => target.trigger === "startup");
+  for (const target of requests) {
+    await handleRequest(target, state);
   }
-
-  await Promise.all(requests);
 }

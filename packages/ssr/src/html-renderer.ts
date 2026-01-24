@@ -10,13 +10,18 @@ import { executeTransformScript } from "./transform-executor.js";
 
 const SSR_STATE_ID = "hy-ssr-state";
 
-export async function renderSsrPage(template: SlotifiedTemplate, request: Request, config: SsrConfig): Promise<string> {
+export async function renderSsrPage(
+  template: SlotifiedTemplate,
+  request: Request,
+  config: SsrConfig,
+  routeParams: Record<string, string> = {}
+): Promise<string> {
   const html = assembleTemplateHtml(template);
   const { document, window } = parseHTML(html);
   ensureDomGlobals(window);
   const parsed = buildParsedDocumentFromIr(document, template.ir as unknown as import("@hytde/runtime").IrDocument);
   const ifChainTemplates = captureIfChainTemplates(parsed.ifChains);
-  const globals = createRuntimeGlobals();
+  const globals = createRuntimeGlobals(routeParams);
   const irRecord =
     template.ir && typeof template.ir === "object" ? (template.ir as Record<string, unknown>) : null;
   const transformScript = irRecord?.tr;
@@ -68,11 +73,13 @@ function assembleTemplateHtml(template: SlotifiedTemplate): string {
   return output;
 }
 
-function createRuntimeGlobals(): RuntimeGlobals {
+function createRuntimeGlobals(routeParams: Record<string, string>): RuntimeGlobals {
+  const hy: RuntimeGlobals["hy"] & { pathParams?: Record<string, string> } = { loading: false, errors: [] };
+  hy.pathParams = routeParams;
   return {
-    hy: { loading: false, errors: [] },
+    hy,
     hyState: {},
-    hyParams: {}
+    hyParams: routeParams
   };
 }
 

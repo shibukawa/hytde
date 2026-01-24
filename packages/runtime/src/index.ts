@@ -37,3 +37,13 @@ export { getRuntimeState } from "./runtime-state.js";
 export { renderDocument } from "./render/index.js";
 export { resolveRequestUrl } from "./requests/runtime.js";
 export { initSsr } from "./ssr.js";
+export {
+  initSpaPrefetch,
+  loadCss,
+  loadJs,
+  loadResources,
+  prefetchRoute,
+  prefetchUrls,
+  readHyGetPrefetch
+} from "./spa/prefetch.js";
+export { SpaRouter } from "./spa/router.js";
