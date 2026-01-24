@@ -112,18 +112,14 @@ function initSpaRouter(scope: typeof globalThis, doc: Document): void {
   if (view.hyRouter) {
     return;
   }
-  console.log("[hytde][spa] checking manifest availability");
   fetch("/route-manifest.json", { method: "HEAD" })
     .then((response) => {
-      console.log("[hytde][spa] manifest HEAD", { ok: response.ok, status: response.status });
       if (!response.ok) {
-        console.log("[hytde][spa] manifest not available; SPA disabled", { status: response.status });
         return;
       }
       const router = new SpaRouter();
       view.hyRouter = router;
       (view as typeof globalThis & { __hytdeSpaEnabled?: boolean }).__hytdeSpaEnabled = true;
-      console.log("[hytde][spa] router initialized");
       void router.init();
     })
     .catch(() => undefined);

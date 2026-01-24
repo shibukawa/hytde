@@ -52,10 +52,8 @@ export class SpaRouter {
   }
 
   async init(): Promise<void> {
-    console.log("[hytde][spa] init router", { manifestPath: this.manifestPath });
     this.ready = (async () => {
       this.manifest = await loadManifest(document, this.manifestPath);
-      console.log("[hytde][spa] manifest loaded", { routes: Object.keys(this.manifest).length });
     })();
     await this.ready;
     initSpaPrefetch(document, { ...this.prefetchOptions, manifestPath: this.manifestPath });
@@ -75,37 +73,27 @@ export class SpaRouter {
   }
 
   private async navigateInternal(path: string, params: Record<string, string>, historyMode: HistoryMode): Promise<void> {
-    console.log("[hytde][spa] navigate", { path, historyMode });
     await this.ready;
     const normalized = normalizeRoutePath(path);
     const match = matchRoute(normalized, this.manifest);
     if (!match) {
-      console.log("[hytde][spa] route not found", { path: normalized });
       reportRouteError(window, "route not found", { path: normalized });
       window.location.href = path;
       return;
     }
-    console.log("[hytde][spa] route match", { path: normalized, modulePath: match.modulePath, routePath: match.routePath });
     let module: RouteModule;
     try {
       module = await importRouteModule(match.modulePath);
-    } catch (error) {
-      console.log("[hytde][spa] module import failed", { modulePath: match.modulePath, error });
+    } catch {
       reportRouteError(window, "module import failed", { modulePath: match.modulePath });
       window.location.href = path;
       return;
     }
-    console.log("[hytde][spa] module loaded", { hasRender: Boolean(module.render) });
     if (module.ir?.resources) {
-      console.log("[hytde][spa] load resources", {
-        css: module.ir.resources.css?.length ?? 0,
-        js: module.ir.resources.js?.length ?? 0
-      });
       await loadResources(document, module.ir.resources);
     }
     const render = module.render;
     if (!render) {
-      console.log("[hytde][spa] render missing; fallback to full navigation", { modulePath: match.modulePath });
       reportRouteError(window, "render missing", { modulePath: match.modulePath });
       window.location.href = path;
       return;
@@ -114,22 +102,11 @@ export class SpaRouter {
     const hy = scope.hy ?? (scope.hy = { loading: false, errors: [] });
     const renderParams = { ...params };
     resetSpaParams(window);
-    const hasTransforms = typeof module.transforms === "string" && module.transforms.trim().length > 0;
-    if (hasTransforms && !module.registerTransforms) {
-      console.log("[hytde][spa] transforms missing register hook", { modulePath: match.modulePath });
-    }
     module.registerTransforms?.(hy);
     runUnmountCallbacks(document);
-    console.log("[hytde][spa] rendering");
     const data = ensureHyState(window);
     const pathParams = parseRouteParams(match.routePath, normalized);
     const mergedParams = mergeParamsWithUrl({ ...pathParams, ...renderParams }, path);
-    console.log("[hytde][spa] render params", {
-      routePath: match.routePath,
-      url: path,
-      pathParams,
-      mergedParams
-    });
     if (module.ir?.requestTargets) {
       applyHyGetPrefetchOverrides(module.ir.requestTargets, data, mergedParams, {
         allowStale: this.allowStalePrefetch
@@ -140,7 +117,6 @@ export class SpaRouter {
       const node = render(renderParams, data, { routePath: match.routePath, url: path });
       next = resolveRenderTarget(node);
     } catch (error) {
-      console.error("[hytde][spa] render failed", { error });
       reportRouteError(window, "render failed", { error: String(error) });
       window.location.href = path;
       return;
@@ -159,8 +135,8 @@ export class SpaRouter {
     if (module.init) {
       try {
         await module.init(data);
-      } catch (error) {
-        console.log("[hytde][spa] module init failed", { error });
+      } catch {
+        // ignore module init errors
       }
     }
     window.scrollTo(0, 0);
@@ -207,9 +183,6 @@ export class SpaRouter {
       }
       const link = target.closest("a");
       if (!link || !this.shouldIntercept(link)) {
-        if (link) {
-          console.log("[hytde][spa] link skipped", { href: link.getAttribute("href") });
-        }
         return;
       }
       event.preventDefault();
@@ -217,7 +190,6 @@ export class SpaRouter {
       if (!href) {
         return;
       }
-      console.log("[hytde][spa] link intercepted", { href });
       void this.navigateTo(href);
     });
   }
@@ -396,14 +368,12 @@ async function loadManifest(doc: Document, manifestPath: string): Promise<RouteM
   if (cached) {
     return cached;
   }
-  console.log("[hytde][spa] fetch manifest", { url: key });
   const promise = fetch(key)
     .then((response) => {
-      console.log("[hytde][spa] manifest response", { url: key, ok: response.ok, status: response.status });
       return response.json() as Promise<RouteManifest>;
     })
     .catch((error) => {
-      console.log("[hytde][spa] manifest fetch failed", { url: key, error });
+      void error;
       return {};
     });
   manifestCache.set(key, promise);
@@ -468,6 +438,5 @@ function parseRouteParams(routePath: string, path: string): Record<string, strin
 
 async function importRouteModule(modulePath: string): Promise<RouteModule> {
   const url = new URL(modulePath, document.baseURI).toString();
-  console.log("[hytde][spa] import module", { modulePath, url });
   return import(/* @vite-ignore */ url) as Promise<RouteModule>;
 }

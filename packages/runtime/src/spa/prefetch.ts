@@ -33,11 +33,6 @@ const DEFAULT_HYGET_TTL_MS = 10_000;
 
 export function initSpaPrefetch(doc: Document, options: PrefetchOptions = {}): void {
   const defaults = resolveDefaults(doc, options);
-  const meta = parseHyPathMeta(doc);
-  console.log("[hytde][spa] init prefetch", {
-    ...defaults,
-    pathMode: meta.mode ?? "hash"
-  });
   setupHoverPrefetch(doc, defaults);
   scheduleForcePrefetch(doc, defaults);
   ensurePrefetchApi(doc, defaults);
@@ -50,23 +45,19 @@ export async function prefetchRoute(
   options: PrefetchOptions = {}
 ): Promise<void> {
   const defaults = resolveDefaults(doc, options);
-  console.log("[hytde][spa] prefetch route", { path, params, manifestPath: defaults.manifestPath });
   const manifest = await loadManifest(doc, defaults.manifestPath);
   const normalized = normalizeRoutePath(path);
   const modulePath = matchRoute(normalized, manifest);
   if (!modulePath) {
-    console.log("[hytde][spa] prefetch route not found", { path: normalized });
     return;
   }
-  console.log("[hytde][spa] prefetch route match", { path: normalized, modulePath });
   let module: RouteModule;
   try {
     module = await importRouteModule(doc, modulePath);
   } catch (error) {
-    console.log("[hytde][spa] prefetch module failed", { path, modulePath, error });
+    void error;
     return;
   }
-  console.log("[hytde][spa] prefetch module loaded", { modulePath });
   const resources = module.ir?.resources;
   if (resources) {
     prefetchResources(doc, resources);
@@ -167,14 +158,12 @@ async function loadManifest(doc: Document, manifestPath: string): Promise<RouteM
   if (cached) {
     return cached;
   }
-  console.log("[hytde][spa] fetch manifest", { manifestPath: key });
   const promise = fetch(key)
     .then((response) => {
-      console.log("[hytde][spa] manifest response", { url: key, ok: response.ok, status: response.status });
       return response.json() as Promise<RouteManifest>;
     })
     .catch((error) => {
-      console.log("[hytde][spa] manifest fetch failed", { url: key, error });
+      void error;
       return {};
     });
   manifestCache.set(key, promise);
@@ -333,7 +322,6 @@ function setupHoverPrefetch(doc: Document, options: Required<PrefetchOptions>): 
     if (!href) {
       return;
     }
-    console.log("[hytde][spa] hover prefetch", { href });
     void prefetchRoute(doc, href, {}, options);
   };
   doc.addEventListener("pointerenter", handler, { capture: true });
@@ -350,7 +338,6 @@ function scheduleForcePrefetch(doc: Document, options: Required<PrefetchOptions>
       continue;
     }
     const scheduled = delay;
-    console.log("[hytde][spa] force prefetch scheduled", { href, delayMs: scheduled });
     setTimeout(() => {
       void prefetchRoute(doc, href, {}, options);
     }, scheduled);

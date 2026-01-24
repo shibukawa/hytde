@@ -831,9 +831,7 @@ export function registerTransforms(hy) {
     const runner = new Function("hy", transforms);
     runner(hy);
     transformsRegistered = true;
-  } catch (error) {
-    console.error("[hytde][spa] transform script error", error);
-  }
+  } catch {}
 }
 
 export function init(data) {
