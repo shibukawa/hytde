@@ -53,6 +53,7 @@ export default defineConfig(() => {
     base: "./",
     build: {
       outDir: resolve(rootDir, variant.outDir),
+      emptyOutDir: true,
       sourcemap: variant.debug,
       target: "es2019",
       rollupOptions: {
