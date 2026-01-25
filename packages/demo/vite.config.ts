@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { extname, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -14,6 +15,7 @@ const demoSpa = process.env.HYTDE_DEMO_SPA === "true";
 const demoApiPort = process.env.HYTDE_DEMO_API_PORT ?? "8787";
 const demoApiTarget = `http://localhost:${demoApiPort}`;
 const demoRoot = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
 
 export default defineConfig(() => ({
   appType: "mpa",
@@ -40,12 +42,20 @@ export default defineConfig(() => ({
         }
         return null;
       },
-      load(id) {
+      async load(id) {
         if (!id.endsWith("extable.css?transform-only")) {
           return null;
         }
         const target = resolve(demoRoot, "../precompile/src/extable.css");
-        return readFile(target, "utf8");
+        try {
+          return await readFile(target, "utf8");
+        } catch {
+          const fallback = resolveExtableCssFallback();
+          if (!fallback) {
+            throw new Error(`[demo-precompile-extable-css] extable.css missing at ${target}`);
+          }
+          return readFile(fallback, "utf8");
+        }
       }
     },
     ...hyTde({
@@ -177,3 +187,12 @@ export default defineConfig(() => ({
     ]
   }
 }));
+
+function resolveExtableCssFallback(): string | null {
+  try {
+    const extableRoot = resolve(require.resolve("@extable/core/package.json"), "..");
+    return resolve(extableRoot, "dist/index.css");
+  } catch {
+    return null;
+  }
+}
