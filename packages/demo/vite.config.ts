@@ -22,13 +22,14 @@ export default defineConfig(() => ({
     {
       name: "demo-precompile-extable-css",
       resolveId(id, importer) {
-        if (id !== "./extable.css?url" || !importer) {
+        if (!importer || !importer.includes("/precompile/src/entry-runtime.")) {
           return null;
         }
-        if (!importer.includes("/precompile/src/entry-runtime.")) {
+        if (id !== "./extable.css?url" && id !== "./extable.css?transform-only") {
           return null;
         }
-        return `${resolve(demoRoot, "../precompile/src/extable.css")}?url`;
+        const suffix = id.includes("?") ? id.slice(id.indexOf("?")) : "";
+        return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
       }
     },
     ...hyTde({
