@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { extname, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -14,11 +15,49 @@ const demoSpa = process.env.HYTDE_DEMO_SPA === "true";
 const demoApiPort = process.env.HYTDE_DEMO_API_PORT ?? "8787";
 const demoApiTarget = `http://localhost:${demoApiPort}`;
 const demoRoot = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
 
 export default defineConfig(() => ({
   appType: "mpa",
   plugins: [
     tailwindcss(),
+    {
+      name: "demo-precompile-extable-css",
+      enforce: "pre",
+      resolveId(id, importer) {
+        const suffix = id.includes("?") ? id.slice(id.indexOf("?")) : "";
+        const isExtableQuery =
+          id.endsWith("extable.css?url") || id.endsWith("extable.css?transform-only");
+        if (!isExtableQuery) {
+          return null;
+        }
+        if (importer?.includes("/precompile/src/entry-runtime.")) {
+          return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
+        }
+        if (importer?.includes("/precompile/src/extable.css?url")) {
+          return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
+        }
+        if (id.includes("/precompile/src/extable.css")) {
+          return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
+        }
+        return null;
+      },
+      async load(id) {
+        if (!id.endsWith("extable.css?transform-only")) {
+          return null;
+        }
+        const target = resolve(demoRoot, "../precompile/src/extable.css");
+        try {
+          return await readFile(target, "utf8");
+        } catch {
+          const fallback = resolveExtableCssFallback();
+          if (!fallback) {
+            throw new Error(`[demo-precompile-extable-css] extable.css missing at ${target}`);
+          }
+          return readFile(fallback, "utf8");
+        }
+      }
+    },
     ...hyTde({
       debug: demoDebug,
       manual: demoManual,
@@ -111,6 +150,13 @@ export default defineConfig(() => ({
         )
       },
       {
+        find: /^@hytde\/standalone\/msw-debug$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../standalone/src/msw-debug.ts"
+        )
+      },
+      {
         find: /^@hytde\/precompile$/,
         replacement: resolve(
           fileURLToPath(new URL(".", import.meta.url)),
@@ -141,3 +187,12 @@ export default defineConfig(() => ({
     ]
   }
 }));
+
+function resolveExtableCssFallback(): string | null {
+  try {
+    const extableRoot = resolve(require.resolve("@extable/core/package.json"), "..");
+    return resolve(extableRoot, "dist/index.css");
+  } catch {
+    return null;
+  }
+}
