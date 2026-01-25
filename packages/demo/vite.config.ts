@@ -21,15 +21,24 @@ export default defineConfig(() => ({
     tailwindcss(),
     {
       name: "demo-precompile-extable-css",
+      enforce: "pre",
       resolveId(id, importer) {
-        if (!importer || !importer.includes("/precompile/src/entry-runtime.")) {
-          return null;
-        }
-        if (id !== "./extable.css?url" && id !== "./extable.css?transform-only") {
-          return null;
-        }
         const suffix = id.includes("?") ? id.slice(id.indexOf("?")) : "";
-        return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
+        const isExtableQuery =
+          id.endsWith("extable.css?url") || id.endsWith("extable.css?transform-only");
+        if (!isExtableQuery) {
+          return null;
+        }
+        if (importer?.includes("/precompile/src/entry-runtime.")) {
+          return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
+        }
+        if (importer?.includes("/precompile/src/extable.css?url")) {
+          return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
+        }
+        if (id.includes("/precompile/src/extable.css")) {
+          return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
+        }
+        return null;
       }
     },
     ...hyTde({
