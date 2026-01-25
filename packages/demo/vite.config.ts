@@ -39,6 +39,13 @@ export default defineConfig(() => ({
           return `${resolve(demoRoot, "../precompile/src/extable.css")}${suffix}`;
         }
         return null;
+      },
+      load(id) {
+        if (!id.endsWith("extable.css?transform-only")) {
+          return null;
+        }
+        const target = resolve(demoRoot, "../precompile/src/extable.css");
+        return readFile(target, "utf8");
       }
     },
     ...hyTde({
