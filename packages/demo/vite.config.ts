@@ -19,6 +19,18 @@ export default defineConfig(() => ({
   appType: "mpa",
   plugins: [
     tailwindcss(),
+    {
+      name: "demo-precompile-extable-css",
+      resolveId(id, importer) {
+        if (id !== "./extable.css?url" || !importer) {
+          return null;
+        }
+        if (!importer.includes("/precompile/src/entry-runtime.")) {
+          return null;
+        }
+        return `${resolve(demoRoot, "../precompile/src/extable.css")}?url`;
+      }
+    },
     ...hyTde({
       debug: demoDebug,
       manual: demoManual,
