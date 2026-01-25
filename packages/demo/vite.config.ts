@@ -111,6 +111,13 @@ export default defineConfig(() => ({
         )
       },
       {
+        find: /^@hytde\/standalone\/msw-debug$/,
+        replacement: resolve(
+          fileURLToPath(new URL(".", import.meta.url)),
+          "../standalone/src/msw-debug.ts"
+        )
+      },
+      {
         find: /^@hytde\/precompile$/,
         replacement: resolve(
           fileURLToPath(new URL(".", import.meta.url)),
