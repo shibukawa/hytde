@@ -1,7 +1,13 @@
 {
   "name": "@hytde/runtime",
   "version": "0.1.0",
+  "homepage": "https://github.com/shibukawa/hytde",
+  "author": "Yoshiki Shibukawa",
+  "license": "Apache-2.0",
   "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "exports": {
     ".": {

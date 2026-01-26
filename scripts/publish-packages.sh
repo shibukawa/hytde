@@ -42,7 +42,7 @@ for package_dir in "${publish_order[@]}"; do
   package_path="${root_dir}/${package_dir}"
   name="$(node -p "require('${package_path}/package.json').name")"
   echo "📤 Publishing ${name}..."
-  (cd "${package_path}" && npm publish)
+  (cd "${package_path}" && npm publish --access public)
 done
 
 echo ""
