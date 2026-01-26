@@ -38,8 +38,8 @@
     "test": "echo \"no tests\""
   },
   "dependencies": {
-    "@hytde/runtime": "0.0.0",
-    "@hytde/parser": "0.0.0",
+    "@hytde/runtime": "0.1.0",
+    "@hytde/parser": "0.1.0",
     "msw": "^2.3.1"
   }
 }
