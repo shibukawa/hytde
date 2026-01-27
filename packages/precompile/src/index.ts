@@ -1,5 +1,5 @@
 import type { IrDocument as RuntimeIrDocument } from "@hytde/runtime";
-import { createRuntime, type Runtime, initHyPathParams } from "@hytde/runtime";
+import { createRuntime, createSpaRuntime, type Runtime, initHyPathParams } from "@hytde/runtime";
 import { compactIrDocument, expandIrDocument, parseSubtree, type IrDocument as ParserIrDocument } from "@hytde/parser";
 
 export interface PrecompileRuntime {
@@ -14,7 +14,7 @@ export function init(root?: Document | HTMLElement): void {
 }
 
 export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime {
-  const runtime = createRuntime({
+  let runtime: Runtime = createRuntime({
     parseDocument: () => {
       throw new Error("parseDocument is not available in IR runtime.");
     },
@@ -28,6 +28,13 @@ export function initPrecompile(root?: Document | HTMLElement): PrecompileRuntime
       return;
     }
     const { compact: runtimeIr, verbose: ir } = normalized;
+    const spaMode = Boolean((ir as { spaMode?: boolean }).spaMode);
+    runtime = (spaMode ? createSpaRuntime : createRuntime)({
+      parseDocument: () => {
+        throw new Error("parseDocument is not available in IR runtime.");
+      },
+      parseSubtree
+    });
     initHyPathParams(doc);
     runtime.init(doc, runtimeIr);
   };

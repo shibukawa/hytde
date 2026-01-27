@@ -8,5 +8,7 @@ if [ ! -f "$precompile_extable" ]; then
   cp "$extable_source" "$precompile_extable"
 fi
 
-HYTDE_DEMO_DEBUG=true npm run build:demo
-npm run preview -w packages/demo -- --host 127.0.0.1 --port 5174 --strictPort
+npm run build -w packages/vite-plugin
+rm -rf packages/demo/dist-spa
+HYTDE_DEMO_SPA=true HYTDE_DEMO_DEBUG=true HYTDE_DEMO_OUT_DIR=dist-spa npm run build:demo
+npm run preview -w packages/demo -- --host 127.0.0.1 --port 5179 --strictPort --outDir dist-spa

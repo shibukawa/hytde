@@ -1,5 +1,6 @@
 export const VERBOSE_TO_COMPACT: Record<string, string> = {
   executionMode: "m",
+  spaMode: "sm",
   mockRules: "mr",
   parseErrors: "pe",
   handlesErrors: "he",

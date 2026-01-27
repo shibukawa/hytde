@@ -1,5 +1,5 @@
 import type { IrDocument as RuntimeIrDocument } from "@hytde/runtime";
-import { createRuntime, initHyPathParams } from "@hytde/runtime";
+import { createRuntime, createSpaRuntime, initHyPathParams } from "@hytde/runtime";
 import { compactIrDocument, expandIrDocument, parseSubtree, type IrDocument as ParserIrDocument } from "@hytde/parser";
 import extableCssUrl from "./extable.css?url";
 
@@ -37,25 +37,26 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   (scope as typeof globalThis & {
     __hytdeSpaRuntime?: {
       createRuntime: typeof createRuntime;
+      createSpaRuntime?: typeof createSpaRuntime;
       initHyPathParams: typeof initHyPathParams;
       parseSubtree: typeof parseSubtree;
     };
-  }).__hytdeSpaRuntime = { createRuntime, initHyPathParams, parseSubtree };
+  }).__hytdeSpaRuntime = { createRuntime, createSpaRuntime, initHyPathParams, parseSubtree };
 
   initHyPathParams(doc);
-  const runtime = createRuntime({
-    parseDocument: () => {
-      throw new Error("parseDocument is not available in IR runtime.");
-    },
-    parseSubtree
-  });
-
   const snapshot = readParserSnapshot(doc);
   const normalized = normalizeIrSnapshot(snapshot);
   if (!normalized) {
     return;
   }
   const { compact: runtimeIr, verbose: ir } = normalized;
+  const spaMode = Boolean((ir as { spaMode?: boolean }).spaMode);
+  const runtime = (spaMode ? createSpaRuntime : createRuntime)({
+    parseDocument: () => {
+      throw new Error("parseDocument is not available in IR runtime.");
+    },
+    parseSubtree
+  });
   const parseErrors = Array.isArray(ir.parseErrors) ? (ir.parseErrors as ParseError[]) : [];
   const tables = Array.isArray(ir.tables) ? ir.tables : [];
   const executionMode = ir.executionMode ?? "production";
@@ -80,7 +81,7 @@ export async function init(root?: Document | HTMLElement): Promise<void> {
   }
 
   await registerMetaMockHandlers(doc, { executionMode, mockRules });
-  await startMockServiceWorkerIfNeeded(doc, executionMode);
+  await startMockServiceWorkerIfNeeded(doc, executionMode, ir.routePath ?? null);
   runtime.init(doc, runtimeIr);
   const hy = ensureHy(doc.defaultView ?? globalThis);
   hy[INIT_DONE_KEY] = true;
@@ -90,7 +91,8 @@ export const hy = { init };
 
 async function startMockServiceWorkerIfNeeded(
   doc: Document,
-  executionMode: "production" | "mock" | "disable"
+  executionMode: "production" | "mock" | "disable",
+  routePath: string | null
 ): Promise<void> {
   const scope = doc.defaultView ?? globalThis;
   const hy = ensureHy(scope) as HyLogState;
@@ -98,6 +100,19 @@ async function startMockServiceWorkerIfNeeded(
   const start = mswState?.start;
   const pendingStart =
     (mswState as { pendingStart?: boolean } | undefined)?.pendingStart ?? false;
+  if (executionMode === "mock" && mswState && routePath) {
+    const resolved = resolveWorkerUrlFromRoutePath(doc, routePath);
+    if (resolved) {
+      const target = mswState as {
+        startOptions?: { serviceWorker?: { url?: string } } & Record<string, unknown>;
+      };
+      if (!target.startOptions?.serviceWorker?.url) {
+        const nextOptions = { ...(target.startOptions ?? {}) };
+        nextOptions.serviceWorker = { ...(nextOptions.serviceWorker ?? {}), url: resolved };
+        target.startOptions = nextOptions;
+      }
+    }
+  }
   console.info("[hytde] runtime:msw:start", {
     hasState: !!mswState,
     hasStart: typeof start === "function",
@@ -123,6 +138,22 @@ async function startMockServiceWorkerIfNeeded(
     }
     console.error("[hytde] MSW failed to start; mocks are disabled.");
   }
+}
+
+function resolveWorkerUrlFromRoutePath(doc: Document, routePath: string): string | null {
+  const view = doc.defaultView;
+  if (!view) {
+    return null;
+  }
+  const pathname = view.location?.pathname ?? "";
+  const normalizedRoute = routePath.startsWith("/") ? routePath : `/${routePath}`;
+  if (pathname && pathname.endsWith(normalizedRoute)) {
+    const base = pathname.slice(0, -normalizedRoute.length);
+    const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+    const prefix = normalizedBase || "";
+    return `${prefix}/mockServiceWorker.js`;
+  }
+  return "/mockServiceWorker.js";
 }
 
 async function registerMetaMockHandlers(doc: Document, ir: { executionMode: string; mockRules: unknown[] }): Promise<void> {

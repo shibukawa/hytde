@@ -31,7 +31,7 @@ export type { IrDocument } from "./ir.js";
 export type { RuntimeState } from "./state.js";
 
 export type { Runtime } from "./runtime.js";
-export { createRuntime, initHyPathParams } from "./runtime.js";
+export { createRuntime, createSpaRuntime, initHyPathParams } from "./runtime.js";
 export { buildParsedDocumentFromIr } from "./ir.js";
 export { getRuntimeState } from "./runtime-state.js";
 export { renderDocument } from "./render/index.js";

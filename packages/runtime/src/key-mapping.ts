@@ -2,6 +2,7 @@ import type { IrDocument } from "./ir.js";
 
 export const VERBOSE_TO_COMPACT: Record<string, string> = {
   executionMode: "m",
+  spaMode: "sm",
   mockRules: "mr",
   parseErrors: "pe",
   handlesErrors: "he",
@@ -137,6 +138,7 @@ export function expandKeys(value: unknown): unknown {
 export function normalizeIrDocument(ir: IrDocument): IrDocument {
   return {
     executionMode: ir.executionMode ?? "production",
+    spaMode: Boolean(ir.spaMode),
     mockRules: Array.isArray(ir.mockRules) ? ir.mockRules : [],
     parseErrors: Array.isArray(ir.parseErrors) ? ir.parseErrors : [],
     handlesErrors: Boolean(ir.handlesErrors),

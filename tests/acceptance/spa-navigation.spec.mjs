@@ -16,12 +16,7 @@ const RESOURCE_PREFETCH = "/api/prefetch-resource";
 const HYGET_PREFETCH = "/api/prefetch-cache";
 
 function shouldRun(projectName) {
-  return (
-    projectName === "runtime-vite" ||
-    projectName === "runtime-vite-path" ||
-    projectName === "precompiled" ||
-    projectName === "ssr"
-  );
+  return projectName === "precompiled-spa" || projectName === "precompiled-spa-path";
 }
 
 function buildManifest() {
