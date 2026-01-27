@@ -1,6 +1,6 @@
 {
   "name": "@hytde/standalone",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "homepage": "https://github.com/shibukawa/hytde",
   "author": "Yoshiki Shibukawa",
   "license": "Apache-2.0",
@@ -44,8 +44,8 @@
     "test": "echo \"no tests\""
   },
   "dependencies": {
-    "@hytde/runtime": "0.1.0",
-    "@hytde/parser": "0.1.0",
+    "@hytde/runtime": "0.1.1",
+    "@hytde/parser": "0.1.1",
     "msw": "^2.3.1"
   }
 }
