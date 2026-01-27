@@ -18,6 +18,7 @@ export type NodeId = string;
 
 export interface IrBase {
   executionMode: "production" | "mock" | "disable";
+  spaMode?: boolean;
 }
 
 export interface IrTextBinding {

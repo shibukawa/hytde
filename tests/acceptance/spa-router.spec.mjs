@@ -5,7 +5,7 @@ const ROUTE_MODULE_PATH = "/routes/acceptance-spa-next.js";
 const SLOW_API_PATH = "/api/slow-user";
 
 function shouldRun(projectName) {
-  return projectName === "runtime-vite" || projectName === "runtime-vite-path" || projectName === "ssr";
+  return projectName === "precompiled-spa" || projectName === "precompiled-spa-path";
 }
 
 function buildSpaModule() {
@@ -82,7 +82,7 @@ test.describe("spa router", () => {
 
     const link = page.getByRole("link", { name: "Go to Next" });
     await link.hover();
-    if (testInfo.project.name === "runtime-vite-path") {
+    if (testInfo.project.name === "precompiled-spa-path") {
       await page.waitForResponse(
         (response) => response.url().includes(SLOW_API_PATH) && response.status() === 200,
         { timeout: 1500 }
@@ -95,7 +95,7 @@ test.describe("spa router", () => {
     }
 
     await link.click();
-    if (testInfo.project.name === "runtime-vite-path") {
+    if (testInfo.project.name === "precompiled-spa-path") {
       await expect(page.getByTestId("spa-next")).toHaveText("Alice", { timeout: 500 });
     } else {
       await expect(page.getByTestId("spa-next")).toHaveText("Alice");
@@ -106,16 +106,18 @@ test.describe("spa router", () => {
   });
 
   test("path mode serves extensionless html", async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "runtime-vite-path") {
+    if (testInfo.project.name !== "precompiled-spa-path") {
       testInfo.skip();
       return;
     }
-    await page.goto("/acceptance/spa/next");
-    await expect(page.getByTestId("spa-next-fallback")).toBeVisible();
+    const response = await page.request.get("/acceptance/spa/next");
+    expect(response.ok()).toBe(true);
+    const html = await response.text();
+    expect(html).toContain('data-testid="spa-next-fallback"');
   });
 
   test("initial route mismatch jumps to meta route", async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "runtime-vite-path") {
+    if (testInfo.project.name !== "precompiled-spa-path") {
       testInfo.skip();
       return;
     }

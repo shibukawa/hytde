@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="hy-mode" content="mock" />
+    <meta name="hy-mock" content="pattern=/api/todos path=/mocks/todos.json" />
+    <title>MSW Worker Root</title>
+  </head>
+  <body>
+    <hy-get src="/api/todos" store="todo"></hy-get>
+    <ul>
+      <li hy-for="item of todo.items">
+        <span data-testid="todo-title" hy="item.title">Todo</span>
+      </li>
+    </ul>
+    <script type="module" src="/assets/standalone/debug-auto/index.js"></script>
+  </body>
+</html>

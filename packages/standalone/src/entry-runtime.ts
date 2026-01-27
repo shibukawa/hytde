@@ -25,7 +25,11 @@ type HyError = {
 type HyLogState = {
   [LOG_CALLBACK_KEY]?: Array<(entry: HyLogEntry) => void>;
   [LOG_BUFFER_KEY]?: HyLogEntry[];
-  [MSW_STATE_KEY]?: { start?: (mode: "production" | "mock" | "disable") => Promise<void> | void; started?: boolean };
+  [MSW_STATE_KEY]?: {
+    start?: (mode: "production" | "mock" | "disable") => Promise<void> | void;
+    started?: boolean;
+    startOptions?: { serviceWorker?: { url?: string } } & Record<string, unknown>;
+  };
   __hytdeRegisterMswMetaHandlers?: (rules: unknown[], doc: Document) => Promise<void>;
   __hytdeInitDone?: boolean;
   mockServiceWorker?: (...args: unknown[]) => void | Promise<void>;
@@ -138,6 +142,9 @@ async function startMockServiceWorkerIfNeeded(
   const start = mswState?.start;
   const pendingStart =
     (mswState as { pendingStart?: boolean } | undefined)?.pendingStart ?? false;
+  if (executionMode === "mock" && mswState) {
+    await applyStandaloneWorkerDiscovery(doc, mswState);
+  }
   console.info("[hytde] runtime:msw:start", {
     hasState: !!mswState,
     hasStart: typeof start === "function",
@@ -163,6 +170,59 @@ async function startMockServiceWorkerIfNeeded(
     }
     console.error("[hytde] MSW failed to start; mocks are disabled.");
   }
+}
+
+const MAX_MSW_WORKER_DEPTH = 8;
+
+async function applyStandaloneWorkerDiscovery(
+  doc: Document,
+  mswState: { startOptions?: { serviceWorker?: { url?: string } } & Record<string, unknown> }
+): Promise<void> {
+  if (mswState.startOptions?.serviceWorker?.url) {
+    return;
+  }
+  const resolved = await discoverWorkerUrl(doc, MAX_MSW_WORKER_DEPTH);
+  if (!resolved) {
+    return;
+  }
+  const nextOptions = { ...(mswState.startOptions ?? {}) };
+  nextOptions.serviceWorker = { ...(nextOptions.serviceWorker ?? {}), url: resolved };
+  mswState.startOptions = nextOptions;
+}
+
+async function discoverWorkerUrl(doc: Document, maxDepth: number): Promise<string | null> {
+  const view = doc.defaultView;
+  if (!view) {
+    return null;
+  }
+  const pathname = view.location?.pathname ?? "";
+  if (!pathname) {
+    return null;
+  }
+  let base = pathname.endsWith("/") ? pathname : pathname.slice(0, pathname.lastIndexOf("/") + 1);
+  if (!base.startsWith("/")) {
+    base = `/${base}`;
+  }
+  let depth = 0;
+  while (depth <= maxDepth) {
+    const candidatePath = `${base}mockServiceWorker.js`;
+    try {
+      const response = await fetch(new URL(candidatePath, view.location.origin).toString(), { method: "HEAD" });
+      if (response.ok) {
+        return candidatePath;
+      }
+    } catch {
+      // Ignore errors and continue probing upwards.
+    }
+    if (base === "/") {
+      break;
+    }
+    base = base.replace(/\/$/, "");
+    const parentIndex = base.lastIndexOf("/");
+    base = parentIndex >= 0 ? base.slice(0, parentIndex + 1) : "/";
+    depth += 1;
+  }
+  return null;
 }
 
 async function registerMetaMockHandlers(doc: Document, ir: { executionMode: string; mockRules: unknown[] }): Promise<void> {

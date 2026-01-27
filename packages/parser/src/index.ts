@@ -17,6 +17,7 @@ export interface TemplateToken {
 
 export interface IrBase {
   executionMode: ExecutionMode;
+  spaMode?: boolean;
 }
 
 export interface IrTextBinding {

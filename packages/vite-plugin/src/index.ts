@@ -2,7 +2,7 @@ import type { Plugin, IndexHtmlTransformContext, ResolvedConfig } from "vite";
 import type { OutputAsset, OutputBundle, SourceMap } from "rollup";
 import { parseHTML } from "linkedom";
 import type { Dirent } from "node:fs";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -237,6 +237,9 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
       }
       if (!shouldEmitSsr()) {
         ssrTemplates.clear();
+        if (shouldRemoveMockWorker(options, resolvedConfig)) {
+          removeMockWorkerAsset(bundle);
+        }
         return;
       }
       const emitted = new Set<string>();
@@ -266,12 +269,18 @@ export default function hyTde(options: HyTdePluginOptions = {}): Plugin[] {
         emitted.add(ssrName);
       }
       ssrTemplates.clear();
+      if (shouldRemoveMockWorker(options, resolvedConfig)) {
+        removeMockWorkerAsset(bundle);
+      }
     },
     async writeBundle() {
       if (!resolvedConfig) {
         return;
       }
       const outDir = resolve(rootDir, resolvedConfig.build.outDir ?? "dist");
+      if (shouldRemoveMockWorker(options, resolvedConfig)) {
+        await rm(resolve(outDir, "mockServiceWorker.js"), { force: true }).catch(() => undefined);
+      }
       if (spaEnabled && resolvedConfig.command === "build") {
         const htmlOutputs = await collectHtmlOutputs(outDir);
         for (const htmlPath of htmlOutputs) {
@@ -460,6 +469,9 @@ async function precompileHtml(
   const resources = extractResources(doc, basePath, rootDir);
   if (resources) {
     ir.resources = resources;
+  }
+  if (options.spa === true) {
+    ir.spaMode = true;
   }
   if (!ir.routePath && templateId) {
     ir.routePath = `/${templateId}`;
@@ -1506,6 +1518,29 @@ function resolveRuntimeDebugMode(
   return mode !== "production";
 }
 
+function shouldRemoveMockWorker(options: HyTdePluginOptions, resolvedConfig: ResolvedConfig | null): boolean {
+  if (options.mock === false) {
+    return true;
+  }
+  if (resolvedConfig?.command !== "build") {
+    return false;
+  }
+  const isDebug = resolveRuntimeDebugMode(undefined, options, resolvedConfig);
+  const isProductionBuild = resolvedConfig.mode === "production";
+  return isProductionBuild && !isDebug;
+}
+
+function removeMockWorkerAsset(bundle: OutputBundle): void {
+  for (const [key, output] of Object.entries(bundle)) {
+    if (output.type !== "asset") {
+      continue;
+    }
+    if (output.fileName === "mockServiceWorker.js") {
+      delete bundle[key];
+    }
+  }
+}
+
 function resolveStandaloneRuntimeImport(
   specifier: string,
   isDebug: boolean,
@@ -2275,7 +2310,13 @@ async function walkHtmlEntries(dir: string, results: string[]): Promise<void> {
   for (const entry of entries) {
     const nextPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "components" || entry.name === "node_modules" || entry.name === "dist" || entry.name === ".git") {
+      if (
+        entry.name === "components"
+        || entry.name === "node_modules"
+        || entry.name === ".git"
+        || entry.name === "dist"
+        || entry.name.startsWith("dist-")
+      ) {
         continue;
       }
       await walkHtmlEntries(nextPath, results);

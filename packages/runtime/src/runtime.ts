@@ -17,7 +17,7 @@ import type { IrDocument } from "./ir.js";
 import { buildParsedDocumentFromIr } from "./ir.js";
 import type { RuntimeState } from "./state.js";
 import { applySsrStateToGlobals, readSsrState, seedPrefetchCache } from "./ssr.js";
-import { SpaRouter } from "./spa/router.js";
+import type { SpaRouter } from "./spa/router.js";
 
 export type {
   AsyncUploadEntry,
@@ -99,12 +99,21 @@ export function createRuntime(parser: ParserAdapter): Runtime {
       setupNavigationHandlers(state);
 
       void bootstrapRuntime(state);
-      initSpaRouter(scope, doc);
     }
   };
 }
 
-function initSpaRouter(scope: typeof globalThis, doc: Document): void {
+export function createSpaRuntime(parser: ParserAdapter): Runtime {
+  const base = createRuntime(parser);
+  return {
+    init(doc: Document, ir: IrDocument) {
+      base.init(doc, ir);
+      void initSpaRouter(doc);
+    }
+  };
+}
+
+async function initSpaRouter(doc: Document): Promise<void> {
   const view = doc.defaultView;
   if (!view) {
     return;
@@ -112,17 +121,11 @@ function initSpaRouter(scope: typeof globalThis, doc: Document): void {
   if (view.hyRouter) {
     return;
   }
-  fetch("/route-manifest.json", { method: "HEAD" })
-    .then((response) => {
-      if (!response.ok) {
-        return;
-      }
-      const router = new SpaRouter();
-      view.hyRouter = router;
-      (view as typeof globalThis & { __hytdeSpaEnabled?: boolean }).__hytdeSpaEnabled = true;
-      void router.init();
-    })
-    .catch(() => undefined);
+  const { SpaRouter } = await import("./spa/router.js");
+  const router = new SpaRouter();
+  view.hyRouter = router;
+  (view as typeof globalThis & { __hytdeSpaEnabled?: boolean }).__hytdeSpaEnabled = true;
+  await router.init();
 }
 
 async function bootstrapRuntime(state: RuntimeState): Promise<void> {
