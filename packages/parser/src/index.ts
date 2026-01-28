@@ -868,6 +868,17 @@ function parseRequestTargets(doc: Document, parseErrors: ParseError[]): RequestT
   const targets: RequestTarget[] = [];
 
   for (const element of elements) {
+    const inLoop = element.closest("[hy-for]");
+    if (inLoop) {
+      parseErrors.push({
+        message: "hy-* request targets cannot be used inside hy-for templates.",
+        detail: {
+          attribute: element.getAttributeNames().find((name) => name.startsWith("hy-")) ?? null,
+          loop: inLoop.getAttribute("hy-for") ?? null
+        }
+      });
+      continue;
+    }
     const methodAttr = resolveMethodAttribute(element);
     if (!methodAttr) {
       continue;
@@ -1047,6 +1058,14 @@ function parseGetTagTargets(doc: Document, parseErrors: ParseError[]): RequestTa
   const targets: RequestTarget[] = [];
 
   for (const element of elements) {
+    const inLoop = element.closest("[hy-for]");
+    if (inLoop) {
+      parseErrors.push({
+        message: "hy-get tags cannot be used inside hy-for templates.",
+        detail: { loop: inLoop.getAttribute("hy-for") ?? null }
+      });
+      continue;
+    }
     const src = element.getAttribute("src");
     const storeRaw = element.getAttribute("store");
     let store = storeRaw?.trim() ?? null;

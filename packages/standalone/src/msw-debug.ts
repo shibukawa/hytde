@@ -1,4 +1,4 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse, sse } from "msw";
 import { setupWorker } from "msw/browser";
 import type { MockRule } from "@hytde/parser";
 import type { HttpResponseResolver, JsonBodyType, RequestHandler, WebSocketHandler } from "msw";
@@ -19,6 +19,7 @@ type HyLogState = {
   __hytdeRegisterMswMetaHandlers?: (rules: MockRule[], doc: Document) => void;
   __hytdeInitDone?: boolean;
   mockServiceWorker?: (...args: unknown[]) => void | Promise<void>;
+  msw?: Record<string, unknown>;
 };
 
 type MswHandler = RequestHandler | WebSocketHandler;
@@ -53,6 +54,7 @@ const MSW_OPTION_KEYS = new Set([
 
 export function installMockServiceWorkerApi(scope: typeof globalThis): void {
   const hy = ensureHy(scope);
+  installMswGlobals(scope, hy);
       console.debug("[hytde] msw:api:init", {
       hasMockServiceWorker: !!hy.mockServiceWorker
     });
@@ -76,6 +78,38 @@ export function installMockServiceWorkerApi(scope: typeof globalThis): void {
       });
   };
       console.debug("[hytde] msw:api:installed");
+}
+
+function installMswGlobals(scope: typeof globalThis, hy: HyLogState): void {
+  const globals: Array<[string, unknown]> = [
+    ["http", http],
+    ["HttpResponse", HttpResponse],
+    ["sse", sse],
+    ["delay", delay]
+  ];
+  const target = scope as Record<string, unknown>;
+  const collisions: string[] = [];
+  for (const [key, value] of globals) {
+    if (!(key in target)) {
+      target[key] = value;
+      continue;
+    }
+    if (target[key] !== value) {
+      collisions.push(key);
+    }
+  }
+  if (!hy.msw || typeof hy.msw !== "object") {
+    hy.msw = {};
+  }
+  const hyMsw = hy.msw as Record<string, unknown>;
+  for (const [key, value] of globals) {
+    if (!(key in hyMsw)) {
+      hyMsw[key] = value;
+    }
+  }
+  if (collisions.length > 0) {
+    return;
+  }
 }
 
 function registerMockServiceWorker(scope: typeof globalThis, state: MswState, args: unknown[]): void {

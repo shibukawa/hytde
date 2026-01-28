@@ -1,3 +1,9 @@
+# Not Released
+
+## Fix
+
+* Bundle Mock Service Worker APIs and publishes at globalThis (`http`, `sse`, `delay`, `HttpResponse`).
+
 # 0.1.1
 
 ## Fix

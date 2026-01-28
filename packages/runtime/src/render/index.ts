@@ -304,19 +304,53 @@ function processIfChains(chains: ParsedIfChain[], state: RuntimeState, scope: Sc
     }
 
     let kept: ParsedIfChainNode | null = null;
+    const evaluations: Array<{
+      kind: ParsedIfChainNode["kind"];
+      expression: string | null;
+      value: unknown;
+      condition: boolean;
+      node: string;
+    }> = [];
     for (const entry of chain.nodes) {
       let condition = true;
+      let value: unknown = null;
       if (entry.kind === "if" || entry.kind === "else-if") {
         if (!entry.expression) {
           condition = false;
         } else {
-          condition = Boolean(evaluateExpression(entry.expression, scope, state));
+          value = evaluateExpression(entry.expression, scope, state);
+          condition = Boolean(value);
         }
       }
+      evaluations.push({
+        kind: entry.kind,
+        expression: entry.expression ? expressionLabel(entry.expression) : null,
+        value,
+        condition,
+        node: entry.node.tagName.toLowerCase()
+      });
 
       if (!kept && condition) {
         kept = entry;
       }
+    }
+    const keptIndex = kept ? chain.nodes.indexOf(kept) : -1;
+    for (const [index, evaluation] of evaluations.entries()) {
+      emitLog(state, {
+        type: "render",
+        message: "if:eval",
+        detail: {
+          index,
+          keptIndex,
+          kept: keptIndex === index,
+          kind: evaluation.kind,
+          expression: evaluation.expression,
+          value: evaluation.value,
+          condition: evaluation.condition,
+          node: evaluation.node
+        },
+        timestamp: Date.now()
+      });
     }
 
     for (const entry of chain.nodes) {
@@ -331,8 +365,8 @@ function processIfChains(chains: ParsedIfChain[], state: RuntimeState, scope: Sc
             node.removeAttribute("hidden");
           }
         }
-      } else if (node.isConnected) {
-        node.remove();
+      } else if (node.parentNode) {
+        node.parentNode.removeChild(node);
       }
     }
   }
