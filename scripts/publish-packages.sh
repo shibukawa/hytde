@@ -12,8 +12,8 @@ echo "🔎 Validating build outputs..."
 required_paths=(
   "packages/parser/dist/index.js"
   "packages/runtime/dist/index.js"
-  "packages/standalone/dist/production-auto/index.js"
-  "packages/precompile/dist/production-auto/index.js"
+  "packages/standalone/dist/prod/index.js"
+  "packages/precompile/dist/prod/index.js"
   "packages/ssr/dist/index.js"
   "packages/vite-plugin/dist/index.js"
 )

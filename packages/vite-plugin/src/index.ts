@@ -1578,11 +1578,17 @@ function replaceStandaloneRuntimeUrl(value: string, isDebug: boolean, manual: bo
       return isDebug ? "@hytde/precompile/debug" : "@hytde/precompile";
     }
   );
-  const variantMatch = next.match(/\/(production|debug)-(auto|manual)\//);
+  const variantMatch = next.match(/\/(prod|debug)(-manual)?\//);
   if (variantMatch) {
-    const isManual = manual || variantMatch[2] === "manual";
-    const variant = `${isDebug ? "debug" : "production"}-${isManual ? "manual" : "auto"}`;
-    next = next.replace(/\/(production|debug)-(auto|manual)\//, `/${variant}/`);
+    const isManual = manual || Boolean(variantMatch[2]);
+    const variant = isDebug
+      ? isManual
+        ? "debug-manual"
+        : "debug"
+      : isManual
+        ? "prod-manual"
+        : "prod";
+    next = next.replace(/\/(prod|debug)(-manual)?\//, `/${variant}/`);
   }
   return next;
 }
@@ -1642,10 +1648,10 @@ function resolveDevPrecompileSpecifier(rootDir: string, isDebug: boolean, manual
   const variant = isDebug
     ? manual
       ? "debug-manual"
-      : "debug-auto"
+      : "debug"
     : manual
-      ? "production-manual"
-      : "production-auto";
+      ? "prod-manual"
+      : "prod";
   const candidate = resolvePrecompileEntryPath(rootDir, variant);
   if (!candidate) {
     return null;
@@ -1657,13 +1663,13 @@ function resolveLocalPrecompileEntry(source: string, rootDir: string): string | 
   if (!source.startsWith("@hytde/precompile")) {
     return null;
   }
-  let variant = "production-auto";
+  let variant = "prod";
   if (source.endsWith("/no-auto-debug")) {
     variant = "debug-manual";
   } else if (source.endsWith("/no-auto")) {
-    variant = "production-manual";
+    variant = "prod-manual";
   } else if (source.endsWith("/debug")) {
-    variant = "debug-auto";
+    variant = "debug";
   }
   return resolvePrecompileEntryPath(rootDir, variant);
 }

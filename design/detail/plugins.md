@@ -27,7 +27,7 @@ hy.registerPlugin(plugin);
 Pre-init registration (for script tags loaded before the runtime):
 ```html
 <script src="/vendor/hytde-plugin-example.js"></script>
-<script src="/dist/production-auto/index.js"></script>
+<script src="/dist/prod/index.js"></script>
 ```
 
 ```js
@@ -45,7 +45,7 @@ The runtime should consume `hy.plugins` during initialization and register them 
 ### Sample HTML
 ```html
 <script src="/plugins/hytde-plugin-example.js"></script>
-<script src="/dist/production-auto/index.js"></script>
+<script src="/dist/prod/index.js"></script>
 ```
 
 ## Lifecycle Hooks

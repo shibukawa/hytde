@@ -3,6 +3,7 @@
 ## Fix
 
 * Bundle Mock Service Worker APIs and publishes at globalThis (`http`, `sse`, `delay`, `HttpResponse`).
+* Fix standalone and precompile runtime's dist's folder
 
 # 0.1.1
 

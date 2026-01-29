@@ -160,21 +160,21 @@ export default defineConfig(() => ({
         find: /^@hytde\/precompile$/,
         replacement: resolve(
           fileURLToPath(new URL(".", import.meta.url)),
-          "../precompile/entries/production-auto/index.ts"
+          "../precompile/entries/prod/index.ts"
         )
       },
       {
         find: /^@hytde\/precompile\/debug$/,
         replacement: resolve(
           fileURLToPath(new URL(".", import.meta.url)),
-          "../precompile/entries/debug-auto/index.ts"
+          "../precompile/entries/debug/index.ts"
         )
       },
       {
         find: /^@hytde\/precompile\/no-auto$/,
         replacement: resolve(
           fileURLToPath(new URL(".", import.meta.url)),
-          "../precompile/entries/production-manual/index.ts"
+          "../precompile/entries/prod-manual/index.ts"
         )
       },
       {

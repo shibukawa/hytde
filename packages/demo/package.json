@@ -19,8 +19,8 @@
     "prebuild": "node ../../scripts/copy-msw-worker.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "preview:demo:prod": "HYTDE_DEMO_DEBUG=false HYTDE_DEMO_PATH_MODE=hash HYTDE_DEMO_OUT_DIR=dist/prod-auto vite build && vite preview --outDir dist/prod-auto",
-    "preview:demo:debug": "node ../../scripts/copy-msw-worker.mjs && HYTDE_DEMO_DEBUG=true HYTDE_DEMO_PATH_MODE=hash HYTDE_DEMO_OUT_DIR=dist/debug-auto vite build && vite preview --outDir dist/debug-auto",
+    "preview:demo:prod": "HYTDE_DEMO_DEBUG=false HYTDE_DEMO_PATH_MODE=hash HYTDE_DEMO_OUT_DIR=dist/prod vite build && vite preview --outDir dist/prod",
+    "preview:demo:debug": "node ../../scripts/copy-msw-worker.mjs && HYTDE_DEMO_DEBUG=true HYTDE_DEMO_PATH_MODE=hash HYTDE_DEMO_OUT_DIR=dist/debug vite build && vite preview --outDir dist/debug",
     "ssr:dev": "npm --prefix ../.. run build && vite build && tsc -p tsconfig.ssr.json && node dist/ssr/ssr-server.mjs",
     "test": "echo \"no tests\""
   },
