@@ -1,4 +1,4 @@
-# Not Released
+# 0.1.2
 
 ## Fix
 

@@ -1,6 +1,6 @@
 {
   "name": "@hytde/demo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "homepage": "https://github.com/shibukawa/hytde",
   "author": "Yoshiki Shibukawa",
   "license": "Apache-2.0",
@@ -25,13 +25,13 @@
     "test": "echo \"no tests\""
   },
   "dependencies": {
-    "@hytde/parser": "0.1.1",
-    "@hytde/runtime": "0.1.1"
+    "@hytde/parser": "0.1.2",
+    "@hytde/runtime": "0.1.2"
   },
   "devDependencies": {
-    "@hytde/standalone": "0.1.1",
-    "@hytde/ssr": "0.1.1",
-    "@hytde/vite-plugin": "0.1.1",
+    "@hytde/standalone": "0.1.2",
+    "@hytde/ssr": "0.1.2",
+    "@hytde/vite-plugin": "0.1.2",
     "@tailwindcss/vite": "^4.0.0",
     "@hono/node-server": "^1.19.9",
     "hono": "^4.6.8",

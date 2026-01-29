@@ -1,6 +1,6 @@
 {
   "name": "@hytde/runtime",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "homepage": "https://github.com/shibukawa/hytde",
   "author": "Yoshiki Shibukawa",
   "license": "Apache-2.0",
@@ -19,7 +19,7 @@
     "dist"
   ],
   "dependencies": {
-    "@extable/core": "^0.3.4"
+    "@extable/core": "^0.3.7"
   },
   "scripts": {
     "build": "tsc -b",

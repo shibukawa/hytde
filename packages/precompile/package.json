@@ -1,6 +1,6 @@
 {
   "name": "@hytde/precompile",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "homepage": "https://github.com/shibukawa/hytde",
   "author": "Yoshiki Shibukawa",
   "license": "Apache-2.0",
@@ -35,9 +35,9 @@
     "test": "echo \"no tests\""
   },
   "dependencies": {
-    "@hytde/runtime": "0.1.1",
-    "@hytde/parser": "0.1.1",
-    "@hytde/standalone": "0.1.1"
+    "@hytde/runtime": "0.1.2",
+    "@hytde/parser": "0.1.2",
+    "@hytde/standalone": "0.1.2"
   },
   "devDependencies": {
     "tailwindcss": "^4.0.0"
