@@ -15,12 +15,7 @@ const extableCssSource = resolve(
   "index.css"
 );
 
-const variants = [
-  "production-auto",
-  "debug-auto",
-  "production-manual",
-  "debug-manual"
-];
+const variants = ["prod", "debug", "prod-manual", "debug-manual"];
 
 const isWindows = process.platform === "win32";
 const viteCommand = isWindows ? "npx.cmd" : "npx";
@@ -59,9 +54,9 @@ for (const variant of variants) {
 const workerCandidates = resolveMswWorkerCandidates(rootDir);
 const workerTargets = [
   resolve(rootDir, "packages/standalone/dist/mockServiceWorker.js"),
-  resolve(rootDir, "packages/standalone/dist/production-auto/mockServiceWorker.js"),
-  resolve(rootDir, "packages/standalone/dist/debug-auto/mockServiceWorker.js"),
-  resolve(rootDir, "packages/standalone/dist/production-manual/mockServiceWorker.js"),
+  resolve(rootDir, "packages/standalone/dist/prod/mockServiceWorker.js"),
+  resolve(rootDir, "packages/standalone/dist/debug/mockServiceWorker.js"),
+  resolve(rootDir, "packages/standalone/dist/prod-manual/mockServiceWorker.js"),
   resolve(rootDir, "packages/standalone/dist/debug-manual/mockServiceWorker.js")
 ];
 

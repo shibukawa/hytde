@@ -12,11 +12,11 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/production-auto/index.js"
+      "default": "./dist/prod/index.js"
     },
     "./debug": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/debug-auto/index.js"
+      "default": "./dist/debug/index.js"
     },
     "./debug-api": {
       "types": "./dist/index.d.ts",
@@ -28,7 +28,7 @@
     },
     "./no-auto": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/production-manual/index.js"
+      "default": "./dist/prod-manual/index.js"
     },
     "./no-auto-debug": {
       "types": "./dist/index.d.ts",

@@ -11,21 +11,21 @@ type Variant = {
 const rootDir = __dirname;
 const variants: Variant[] = [
   {
-    name: "production-auto",
-    htmlEntry: "entries/production-auto/index.html",
-    outDir: "dist/production-auto",
+    name: "prod",
+    htmlEntry: "entries/prod/index.html",
+    outDir: "dist/prod",
     debug: false
   },
   {
-    name: "debug-auto",
-    htmlEntry: "entries/debug-auto/index.html",
-    outDir: "dist/debug-auto",
+    name: "debug",
+    htmlEntry: "entries/debug/index.html",
+    outDir: "dist/debug",
     debug: true
   },
   {
-    name: "production-manual",
-    htmlEntry: "entries/production-manual/index.html",
-    outDir: "dist/production-manual",
+    name: "prod-manual",
+    htmlEntry: "entries/prod-manual/index.html",
+    outDir: "dist/prod-manual",
     debug: false
   },
   {
@@ -37,7 +37,7 @@ const variants: Variant[] = [
 ];
 
 function resolveVariant(): Variant {
-  const name = process.env.HYTDE_STANDALONE_VARIANT ?? "production-auto";
+  const name = process.env.HYTDE_STANDALONE_VARIANT ?? "prod";
   const variant = variants.find((item) => item.name === name);
   if (!variant) {
     throw new Error(`Unknown HYTDE_STANDALONE_VARIANT: ${name}`);
